@@ -27,6 +27,10 @@ type Config struct {
 	Token      string
 	DisableUDP bool
 	HTTPClient *http.Client
+	// KeepAlive is how often we write a dummy relay frame so the hub does
+	// not idle-drop the host WebSocket. Zero means 15s. Must be less than
+	// the hub's quiet-WS deadline (60s) and typical nginx read timeouts.
+	KeepAlive time.Duration
 }
 
 type Conn struct {
@@ -96,6 +100,7 @@ func Dial(ctx context.Context, cfg Config) (*Conn, error) {
 		go c.punchLoop()
 	}
 	go c.readWS()
+	go c.keepAlive()
 	return c, nil
 }
 
@@ -110,6 +115,7 @@ func (c *Conn) Close() error {
 	c.wsMu.Lock()
 	if c.ws != nil {
 		_ = c.ws.Close()
+		c.ws = nil
 	}
 	c.wsMu.Unlock()
 	if c.udp != nil {
@@ -149,20 +155,6 @@ func httpToWS(h string) string {
 
 func originURL(h string) string {
 	return strings.TrimRight(h, "/")
-}
-
-func (c *Conn) connectWS(ctx context.Context) error {
-	info, _ := c.getInfo(ctx)
-	c.stun = info
-	hdr := http.Header{}
-	hdr.Set("Authorization", "Bearer "+c.cfg.Token)
-	d := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
-	ws, _, err := d.DialContext(ctx, httpToWS(c.cfg.HubURL), hdr)
-	if err != nil {
-		return fmt.Errorf("client: ws: %w", err)
-	}
-	c.ws = ws
-	return nil
 }
 
 func (c *Conn) getInfo(ctx context.Context) (string, error) {
@@ -234,20 +226,6 @@ func stunOnce(pc *net.UDPConn, stun string, pub []byte) (string, error) {
 	return string(buf[4:n]), nil
 }
 
-func (c *Conn) writeWS(fr protocol.Frame) error {
-	raw, err := fr.Marshal()
-	if err != nil {
-		return err
-	}
-	c.wsMu.Lock()
-	defer c.wsMu.Unlock()
-	if c.ws == nil {
-		return fmt.Errorf("client: ws closed")
-	}
-	_ = c.ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return c.ws.WriteMessage(websocket.BinaryMessage, raw)
-}
-
 func (c *Conn) newFrame(typ byte, dst []byte, payload []byte) protocol.Frame {
 	var fr protocol.Frame
 	fr.Type = typ
@@ -260,26 +238,6 @@ func (c *Conn) newFrame(typ byte, dst []byte, payload []byte) protocol.Frame {
 	}
 	c.mu.Unlock()
 	return fr
-}
-
-func (c *Conn) readWS() {
-	for {
-		c.wsMu.Lock()
-		ws := c.ws
-		c.wsMu.Unlock()
-		if ws == nil {
-			return
-		}
-		_, data, err := ws.ReadMessage()
-		if err != nil {
-			return
-		}
-		fr, err := protocol.UnmarshalFrame(data)
-		if err != nil {
-			continue
-		}
-		c.handleFrame(fr, protocol.PathRelay, nil)
-	}
 }
 
 func (c *Conn) readUDP() {

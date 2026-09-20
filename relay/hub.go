@@ -38,6 +38,9 @@ type Hub struct {
 	mu    sync.Mutex
 	conns map[string]*peerConn // pubkey hex -> ws
 	sniff [][]byte             // test-only intercepted payloads
+
+	// Idle is the quiet-WebSocket deadline. Zero means 60s. Tests shorten it.
+	Idle time.Duration
 }
 
 type peerConn struct {
@@ -51,6 +54,13 @@ func (h *Hub) SetNow(now func() time.Time) {
 	if now != nil {
 		h.now = now
 	}
+}
+
+func (h *Hub) wsIdle() time.Duration {
+	if h.Idle > 0 {
+		return h.Idle
+	}
+	return wsWait
 }
 
 func New(st store.Store) *Hub {
@@ -413,8 +423,12 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 		_ = h.Store.AppendTrace(context.Background(), store.TraceEvent{Ref: crypto.Fingerprint(pub), Kind: "disconnect", PeerFP: crypto.Fingerprint(pub)})
 	}()
 	ws.SetReadLimit(80 << 10)
+	ws.SetPingHandler(func(appData string) error {
+		_ = ws.SetReadDeadline(time.Now().Add(h.wsIdle()))
+		return ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+	})
 	for {
-		_ = ws.SetReadDeadline(time.Now().Add(wsWait))
+		_ = ws.SetReadDeadline(time.Now().Add(h.wsIdle()))
 		_, data, err := ws.ReadMessage()
 		if err != nil {
 			return

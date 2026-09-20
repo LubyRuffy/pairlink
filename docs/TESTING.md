@@ -17,3 +17,5 @@ Required cases:
 - Expired pairing redeem fails.
 - Device ticket as WebSocket subprotocol opens the relay (browser clients).
 - Capacitor WebView OPTIONS preflight on redeem returns 204 with CORS.
+- Host keepalive frames hold a quiet WebSocket past the hub idle deadline;
+  a dropped socket reconnects and redeem still works.

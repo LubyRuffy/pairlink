@@ -241,3 +241,107 @@ func TestExpiredPairingRejected(t *testing.T) {
 		t.Fatal("expired pairing should fail")
 	}
 }
+
+func dialHost(t *testing.T, hub *relay.Hub, hubURL string, keep time.Duration) *Conn {
+	t.Helper()
+	ctx := context.Background()
+	token, err := relay.IssueHostToken(ctx, hub.Store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostID, err := crypto.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterHost(ctx, hubURL, token, hostID); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Dial(ctx, Config{
+		HubURL: hubURL, Identity: hostID, Token: token, DisableUDP: true, KeepAlive: keep,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
+func TestKeepAliveHoldsTheHostThroughAShortIdleDeadline(t *testing.T) {
+	// The live hub drops a quiet WS after 60s; nginx often matches that.
+	// Without a data-frame keepalive the PC still mints QR codes (HTTP) and
+	// the phone redeem returns host offline.
+	st := store.NewMemory()
+	h := relay.New(st)
+	h.Idle = 200 * time.Millisecond
+	srv := httptest.NewServer(h.Handler())
+	t.Cleanup(srv.Close)
+	hostC := dialHost(t, h, srv.URL, 50*time.Millisecond)
+	for i := 0; i < 8; i++ {
+		time.Sleep(80 * time.Millisecond)
+		if !hostC.Connected() {
+			t.Fatalf("host dropped at tick %d", i)
+		}
+	}
+	ctx := context.Background()
+	uri, _, err := hostC.CreateOffer(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offer, err := protocol.Parse(uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devID, err := crypto.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := RedeemOffer(ctx, offer, devID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHostReconnectsAfterTheHubDropsTheSocket(t *testing.T) {
+	st := store.NewMemory()
+	h := relay.New(st)
+	h.Idle = 80 * time.Millisecond
+	srv := httptest.NewServer(h.Handler())
+	t.Cleanup(srv.Close)
+	hostC := dialHost(t, h, srv.URL, time.Hour)
+	if !hostC.Connected() {
+		t.Fatal("expected connected")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && hostC.Connected() {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if hostC.Connected() {
+		t.Fatal("quiet socket should idle-drop without keepalive")
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && !hostC.Connected() {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !hostC.Connected() {
+		t.Fatal("host must reconnect after the hub drops the socket")
+	}
+	ctx := context.Background()
+	uri, _, err := hostC.CreateOffer(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offer, err := protocol.Parse(uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	devID, err := crypto.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := RedeemOffer(ctx, offer, devID); err != nil {
+		t.Fatal(err)
+	}
+	hostC.Close()
+	if hostC.Connected() {
+		t.Fatal("Close must clear Connected")
+	}
+}

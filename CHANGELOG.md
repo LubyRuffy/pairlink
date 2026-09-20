@@ -11,3 +11,7 @@
   (no ticket in the URL, no Authorization header required).
 - CORS on `/pairlink/v1` HTTP so Capacitor WebView `fetch` redeem is not
   `Failed to fetch` after a valid QR paste.
+- Host WebSocket keepalive data frames (hub quiet-WS is 60s) and reconnect
+  after a dropped socket, so redeem is not `host offline` while the PC still
+  mints QR codes over HTTP.
+
