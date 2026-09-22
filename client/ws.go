@@ -154,6 +154,7 @@ func (c *Conn) keepAlive() {
 			return
 		case <-t.C:
 			pub := c.cfg.Identity.Public()
+			c.announceLinks()
 			if err := c.writeWS(c.newFrame(protocol.TypePunchPing, pub, nil)); err != nil && !c.stopped() {
 				c.wsMu.Lock()
 				ws := c.ws

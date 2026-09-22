@@ -130,10 +130,14 @@ func (c *Conn) KillUDP() {
 		c.udp = nil
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	links := make([]*Link, 0, len(c.links))
 	for _, l := range c.links {
-		l.path.Store(protocol.PathRelay)
+		links = append(links, l)
 		l.peerUDP.Store((*net.UDPAddr)(nil))
+	}
+	c.mu.Unlock()
+	for _, l := range links {
+		c.notePath(l, protocol.PathRelay)
 	}
 }
 
@@ -326,6 +330,7 @@ func (c *Conn) install(peer []byte, sid [protocol.SessionIDSize]byte, sess *cryp
 	delete(c.pending, key)
 	cb := c.onLink
 	c.mu.Unlock()
+	c.announcePath(l)
 	_ = c.sendDisco(l)
 	if cb != nil {
 		cb(l)
@@ -392,7 +397,7 @@ func (c *Conn) onPong(fr protocol.Frame, from *net.UDPAddr) {
 		l.peerUDP.Store(from)
 	}
 	l.lastPong.Store(time.Now().UnixNano())
-	l.path.Store(protocol.PathDirect)
+	c.notePath(l, protocol.PathDirect)
 }
 
 func (c *Conn) sendPunch(l *Link, addr *net.UDPAddr, typ byte) {
@@ -429,7 +434,7 @@ func (c *Conn) punchLoop() {
 				}
 				last := time.Unix(0, l.lastPong.Load())
 				if l.Path() == protocol.PathDirect && (last.IsZero() || now.Sub(last) > 2*time.Second) {
-					l.path.Store(protocol.PathRelay)
+					c.notePath(l, protocol.PathRelay)
 				}
 			}
 		}

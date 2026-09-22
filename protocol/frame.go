@@ -11,6 +11,7 @@ const (
 	TypeData           = 0x02
 	TypeDisco          = 0x03
 	TypeObserved       = 0x04
+	TypePath           = 0x05
 	TypePunchPing      = 0x10
 	TypePunchPong      = 0x11
 	SessionIDSize      = 16
@@ -24,6 +25,25 @@ const (
 	PathRelay  = "relay"
 	PathDirect = "direct"
 )
+
+// Path codes are the only legal TypePath payload. One byte, not application
+// JSON, so a hub can record the data plane without opening a session.
+const (
+	PathCodeRelay  byte = 1
+	PathCodeDirect byte = 2
+)
+
+// PathFromCode maps a TypePath payload byte to relay or direct.
+func PathFromCode(code byte) (string, bool) {
+	switch code {
+	case PathCodeRelay:
+		return PathRelay, true
+	case PathCodeDirect:
+		return PathDirect, true
+	default:
+		return "", false
+	}
+}
 
 // Frame is one hop on the relay WebSocket or a direct UDP datagram.
 type Frame struct {

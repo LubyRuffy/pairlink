@@ -96,6 +96,20 @@ func pairWith(t *testing.T, hub *relay.Hub, hubURL string, disableUDP bool) (hos
 	return hostC, devC, hostL, devL
 }
 
+func waitHubPath(t *testing.T, hub *relay.Hub, a, b []byte, want string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	var got string
+	for time.Now().Before(deadline) {
+		got = hub.LinkPath(a, b)
+		if got == want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("hub path %q, want %q", got, want)
+}
+
 func TestRelayOnlyEchoAndHubCannotReadBody(t *testing.T) {
 	hub, url, cancel := startHub(t)
 	defer cancel()
@@ -115,10 +129,14 @@ func TestRelayOnlyEchoAndHubCannotReadBody(t *testing.T) {
 	if hostL.Path() != protocol.PathRelay || devL.Path() != protocol.PathRelay {
 		t.Fatalf("path host=%s device=%s", hostL.Path(), devL.Path())
 	}
+	waitHubPath(t, hub, hostL.PeerPub, devL.PeerPub, protocol.PathRelay)
 	found := false
 	for _, p := range hub.SniffedPayloads() {
 		if bytes.Contains(p, plain) {
 			t.Fatal("hub forwarded plaintext")
+		}
+		if bytes.Equal(p, []byte{protocol.PathCodeRelay}) || bytes.Equal(p, []byte{protocol.PathCodeDirect}) {
+			t.Fatal("path announcement sniffed as application data")
 		}
 		if len(p) > 0 {
 			found = true
@@ -143,6 +161,7 @@ func TestDirectUpgradeThenFallback(t *testing.T) {
 	if hostL.Path() != protocol.PathDirect {
 		t.Fatalf("expected direct, host=%s device=%s", hostL.Path(), devL.Path())
 	}
+	waitHubPath(t, hub, hostL.PeerPub, devL.PeerPub, protocol.PathDirect)
 	msg := []byte("after-upgrade")
 	if err := hostL.Send(msg); err != nil {
 		t.Fatal(err)
@@ -167,6 +186,7 @@ func TestDirectUpgradeThenFallback(t *testing.T) {
 	if hostL.Path() != protocol.PathRelay {
 		t.Fatalf("expected fallback relay, got %s", hostL.Path())
 	}
+	waitHubPath(t, hub, hostL.PeerPub, devL.PeerPub, protocol.PathRelay)
 	msg2 := []byte("after-fallback")
 	if err := devL.Send(msg2); err != nil {
 		t.Fatal(err)

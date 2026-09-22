@@ -2,6 +2,10 @@
 
 ## Added
 
+- Clients announce `relay` or `direct` on the relay socket when the data plane
+  changes and on every keepalive. `Hub.LinkPath` keeps that observation for
+  45s. A TypeData payload is never a path, and an unbound or stale pair stays
+  empty so a caller can show offline.
 - Scan-to-bind offer URI and QR PNG helper.
 - Embeddable DERP-style hub: register, pairing, redeem, WebSocket forward, STUN-lite.
 - Client path selection: relay first, UDP upgrade, fallback when UDP dies.

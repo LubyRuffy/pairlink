@@ -12,7 +12,9 @@ Required cases:
 - QR PNG is a real PNG produced from a parseable URI.
 - Two clients, UDP disabled: echo works, `path=relay`.
 - Two clients on loopback: path upgrades to `direct`, then `KillUDP` falls back
-  and echo still works.
+  and echo still works. The hub's `LinkPath` follows those announcements.
+  A TypeData byte that matches the direct code does not create a path;
+  an overlong or unbound announcement is ignored; a 45s-old observation expires.
 - Trace for a session id contains bind/forward and not the payload.
 - Expired pairing redeem fails.
 - Device ticket as WebSocket subprotocol opens the relay (browser clients).

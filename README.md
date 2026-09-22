@@ -32,4 +32,6 @@ ticket in the URL.
 
 Every pairing and session has an id. `GET /pairlink/v1/trace/<id>` (host token)
 returns metadata: connect, pair, bind, forward (byte counts, `path=relay`),
-disconnect. Ciphertext and secrets are not stored.
+disconnect. Ciphertext and secrets are not stored. Live path is a separate
+one-byte `TypePath` announcement from the endpoints. `Hub.LinkPath` reports
+`relay` or `direct` for 45s; anything else is absent.

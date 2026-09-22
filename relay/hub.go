@@ -37,6 +37,7 @@ type Hub struct {
 
 	mu    sync.Mutex
 	conns map[string]*peerConn // pubkey hex -> ws
+	paths map[string]pathObs   // bound pair -> latest path announcement
 	sniff [][]byte             // test-only intercepted payloads
 
 	// Idle is the quiet-WebSocket deadline. Zero means 60s. Tests shorten it.
@@ -466,6 +467,12 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if !bytesEqual(fr.Src[:], pub) {
+			continue
+		}
+		// Path is endpoint metadata. It is not forwarded and not sniffed:
+		// the hub never treats an application payload as a path.
+		if fr.Type == protocol.TypePath {
+			h.observePath(r.Context(), pub, fr.Dst[:], fr.Payload)
 			continue
 		}
 		h.forward(r.Context(), pc, fr, data)
