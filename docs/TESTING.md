@@ -19,3 +19,6 @@ Required cases:
 - Capacitor WebView OPTIONS preflight on redeem returns 204 with CORS.
 - Host keepalive frames hold a quiet WebSocket past the hub idle deadline;
   a dropped socket reconnects and redeem still works.
+- `ClosePeers` closes every upgraded relay socket without waiting for the idle
+  deadline. A device upgrade while its host is absent is closed immediately
+  instead of staying open and dropping frames.

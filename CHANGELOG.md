@@ -15,3 +15,9 @@
   after a dropped socket, so redeem is not `host offline` while the PC still
   mints QR codes over HTTP.
 
+## Fixed
+
+- Handover and process exit can close every relay WebSocket via `ClosePeers`.
+  A device that upgrades while its host is not in this process is closed at
+  once, so the client redials instead of sending into an empty peer table.
+

@@ -63,6 +63,26 @@ func (h *Hub) wsIdle() time.Duration {
 	return wsWait
 }
 
+// ClosePeers closes every upgraded relay socket. Shutdown does not: hijacked
+// WebSockets outlive the HTTP server, and a graceful proxy reload keeps the
+// upstream until the client stops writing. Callers that still serve HTTP use
+// this to make both ends redial into the process that owns the peer table.
+func (h *Hub) ClosePeers() {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	peers := h.conns
+	h.conns = map[string]*peerConn{}
+	h.mu.Unlock()
+	for _, pc := range peers {
+		if pc == nil || pc.ws == nil {
+			continue
+		}
+		_ = pc.ws.Close()
+	}
+}
+
 func New(st store.Store) *Hub {
 	if st == nil {
 		st = store.NewMemory()
@@ -390,7 +410,7 @@ var upgrader = websocket.Upgrader{
 const ticketProtoPrefix = "pairlink.ticket."
 
 func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
-	pub, err := h.identifyWS(r)
+	pub, hostPub, device, err := h.identifyWS(r)
 	if err != nil {
 		httpError(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -402,6 +422,14 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 	ws, err := u.Upgrade(w, r, nil)
 	if err != nil {
 		return
+	}
+	// A device 101 with no host in this process is a black hole: frames are
+	// dropped and the client keeps its local "online" bit. Close now so it redials.
+	if device {
+		if _, ok := h.lookup(hostPub); !ok {
+			_ = ws.Close()
+			return
+		}
 	}
 	pc := &peerConn{pub: pub, ws: ws, addr: r.RemoteAddr}
 	key := hex.EncodeToString(pub)
@@ -476,19 +504,19 @@ func wsToken(r *http.Request) string {
 	return strings.TrimPrefix(p, ticketProtoPrefix)
 }
 
-func (h *Hub) identifyWS(r *http.Request) ([]byte, error) {
+func (h *Hub) identifyWS(r *http.Request) (pub, hostPub []byte, device bool, err error) {
 	tok := wsToken(r)
 	if tok == "" {
-		return nil, errors.New("missing token")
+		return nil, nil, false, errors.New("missing token")
 	}
-	if host, err := h.Store.HostByTokenHash(r.Context(), store.HashSecret(tok)); err == nil && len(host.Pub) > 0 {
-		return host.Pub, nil
+	if host, herr := h.Store.HostByTokenHash(r.Context(), store.HashSecret(tok)); herr == nil && len(host.Pub) > 0 {
+		return host.Pub, nil, false, nil
 	}
 	b, err := h.Store.BindingByTicketHash(r.Context(), store.HashSecret(tok))
 	if err != nil {
-		return nil, err
+		return nil, nil, false, err
 	}
-	return b.DevicePub, nil
+	return b.DevicePub, append([]byte(nil), b.HostPub...), true, nil
 }
 
 func (h *Hub) lookup(pub []byte) (*peerConn, bool) {
