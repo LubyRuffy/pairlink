@@ -22,6 +22,9 @@ type Host struct {
 	Pub       []byte
 	TokenHash []byte
 	Created   time.Time
+	// Name is the host's own label (hostname or the name it shows a phone).
+	// Empty means the endpoint has not announced one.
+	Name string
 }
 
 type Pairing struct {
@@ -41,6 +44,8 @@ type Binding struct {
 	Revoked    bool
 	Created    time.Time
 	SessionID  []byte
+	// DeviceName is the device's own label (model line). Empty means unannounced.
+	DeviceName string
 }
 
 type TraceEvent struct {

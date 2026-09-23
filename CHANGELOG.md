@@ -2,6 +2,10 @@
 
 ## Added
 
+- `POST /pairlink/v1/hosts` and `POST /pairlink/v1/pairings/redeem` accept an
+  optional `name`. The hub stores a sanitized 80-rune host label and device
+  label. An empty name does not clear a label already stored. `GET /bindings`
+  returns `device_name`. These strings are not read from TypeData.
 - Clients announce `relay` or `direct` on the relay socket when the data plane
   changes and on every keepalive. `Hub.LinkPath` keeps that observation for
   45s. A TypeData payload is never a path, and an unbound or stale pair stays

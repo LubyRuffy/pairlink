@@ -168,6 +168,7 @@ func (h *Hub) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Pub   string `json:"pub"`
 		Token string `json:"token"`
+		Name  string `json:"name"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad json")
@@ -189,6 +190,9 @@ func (h *Hub) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	host.Pub = pub
+	if name := protocol.SanitizeLabel(req.Name); name != "" {
+		host.Name = name
+	}
 	if err := h.Store.PutHost(r.Context(), host); err != nil {
 		httpError(w, http.StatusInternalServerError, "store")
 		return
@@ -246,6 +250,7 @@ func (h *Hub) handleRedeem(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Code      string `json:"code"`
 		DevicePub string `json:"device_pub"`
+		Name      string `json:"name"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad json")
@@ -291,6 +296,7 @@ func (h *Hub) handleRedeem(w http.ResponseWriter, r *http.Request) {
 		TicketHash: store.HashSecret(ticket),
 		Created:    h.now(),
 		SessionID:  p.SessionID,
+		DeviceName: protocol.SanitizeLabel(req.Name),
 	}
 	if err := h.Store.PutBinding(r.Context(), b); err != nil {
 		httpError(w, http.StatusInternalServerError, "store")
@@ -319,17 +325,19 @@ func (h *Hub) handleListBindings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type row struct {
-		ID        string `json:"id"`
-		DeviceFP  string `json:"device_fp"`
-		CreatedAt string `json:"created_at"`
-		SessionID string `json:"session_id"`
+		ID         string `json:"id"`
+		DeviceFP   string `json:"device_fp"`
+		DeviceName string `json:"device_name,omitempty"`
+		CreatedAt  string `json:"created_at"`
+		SessionID  string `json:"session_id"`
 	}
 	out := make([]row, 0, len(list))
 	for _, b := range list {
 		out = append(out, row{
 			ID: b.ID, DeviceFP: crypto.Fingerprint(b.DevicePub),
-			CreatedAt: b.Created.UTC().Format(time.RFC3339),
-			SessionID: hex.EncodeToString(b.SessionID),
+			DeviceName: b.DeviceName,
+			CreatedAt:  b.Created.UTC().Format(time.RFC3339),
+			SessionID:  hex.EncodeToString(b.SessionID),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"bindings": out})

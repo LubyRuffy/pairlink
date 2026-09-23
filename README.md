@@ -4,7 +4,9 @@ Scan-to-bind, then talk. Traffic starts on a DERP-style hub and upgrades to a
 direct UDP path when hole punching works — the Tailscale path model, not a VPN.
 
 The hub never sees application plaintext. Peers are long-term X25519 public
-keys. Binding is a QR URI:
+keys. A host or device may also send its own display label on register or
+redeem (`name`, at most 80 runes). That label is coordination metadata, not
+a decrypted frame. Binding is a QR URI:
 
 ```
 pairlink:v1:<hub_url>:<pairing_code>:<host_spk>

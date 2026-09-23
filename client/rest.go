@@ -74,23 +74,42 @@ func getJSON(ctx context.Context, hc *http.Client, hub, token, path string, out 
 
 // RegisterHost binds a long-term public key to a Host Token before opening WS.
 func RegisterHost(ctx context.Context, hubURL, token string, id *crypto.Identity) error {
-	return postJSON(ctx, nil, hubURL, token, "/pairlink/v1/hosts", map[string]string{
+	return RegisterHostLabel(ctx, hubURL, token, "", id)
+}
+
+// RegisterHostLabel is RegisterHost plus the host's own name. An empty label
+// leaves a name the hub already stored.
+func RegisterHostLabel(ctx context.Context, hubURL, token, label string, id *crypto.Identity) error {
+	body := map[string]string{
 		"pub":   crypto.PublicBase64(id.Public()),
 		"token": token,
-	}, nil)
+	}
+	if label = strings.TrimSpace(label); label != "" {
+		body["name"] = label
+	}
+	return postJSON(ctx, nil, hubURL, token, "/pairlink/v1/hosts", body, nil)
 }
 
 // RedeemOffer spends the QR pairing code. Call this before Dial with the ticket.
 func RedeemOffer(ctx context.Context, offer protocol.Offer, device *crypto.Identity) (ticket string, hostPub, sessionID []byte, err error) {
+	return RedeemOfferLabel(ctx, offer, "", device)
+}
+
+// RedeemOfferLabel is RedeemOffer plus the device's own name.
+func RedeemOfferLabel(ctx context.Context, offer protocol.Offer, label string, device *crypto.Identity) (ticket string, hostPub, sessionID []byte, err error) {
 	var resp struct {
 		Ticket    string `json:"ticket"`
 		HostPub   string `json:"host_pub"`
 		SessionID string `json:"session_id"`
 	}
-	if err = postJSON(ctx, nil, offer.HubURL, "", "/pairlink/v1/pairings/redeem", map[string]string{
+	body := map[string]string{
 		"code":       offer.Code,
 		"device_pub": crypto.PublicBase64(device.Public()),
-	}, &resp); err != nil {
+	}
+	if label = strings.TrimSpace(label); label != "" {
+		body["name"] = label
+	}
+	if err = postJSON(ctx, nil, offer.HubURL, "", "/pairlink/v1/pairings/redeem", body, &resp); err != nil {
 		return "", nil, nil, err
 	}
 	hostPub, err = crypto.ParsePublic(resp.HostPub)
@@ -102,10 +121,11 @@ func RedeemOffer(ctx context.Context, offer protocol.Offer, device *crypto.Ident
 }
 
 type BindingView struct {
-	ID        string `json:"id"`
-	DeviceFP  string `json:"device_fp"`
-	CreatedAt string `json:"created_at"`
-	SessionID string `json:"session_id"`
+	ID         string `json:"id"`
+	DeviceFP   string `json:"device_fp"`
+	DeviceName string `json:"device_name,omitempty"`
+	CreatedAt  string `json:"created_at"`
+	SessionID  string `json:"session_id"`
 }
 
 func ListBindings(ctx context.Context, hubURL, token string) ([]BindingView, error) {
