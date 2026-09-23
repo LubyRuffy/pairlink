@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -85,15 +86,17 @@ func TestPathAnnouncementIsNotApplicationData(t *testing.T) {
 		t.Fatalf("unbound pair recorded %q", got)
 	}
 
-	cur := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
-	h.SetNow(func() time.Time { return cur })
+	// The socket goroutine reads this clock while the test advances it.
+	var cur atomic.Value
+	cur.Store(time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC))
+	h.SetNow(func() time.Time { return cur.Load().(time.Time) })
 	writeFrame(t, hostConn, protocol.TypePath, b.HostPub, b.DevicePub, []byte{protocol.PathCodeDirect})
 	waitLinkPath(t, h, b.HostPub, b.DevicePub, protocol.PathDirect)
 	if h.LinkPath(b.DevicePub, b.HostPub) != protocol.PathDirect {
 		t.Fatal("path key depends on argument order")
 	}
 
-	cur = cur.Add(PathFreshness + time.Second)
+	cur.Store(cur.Load().(time.Time).Add(PathFreshness + time.Second))
 	if got := h.LinkPath(b.HostPub, b.DevicePub); got != "" {
 		t.Fatalf("stale direct stayed visible %q", got)
 	}

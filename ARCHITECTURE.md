@@ -16,7 +16,7 @@ flowchart TB
 - `client` — host/device, relay-first send, punch loop, fallback, hub
   WebSocket keepalive + reconnect so presence matches HTTP pairing
 - `qr` — PNG for desktop UI / mobile camera
-- `demo/mobile` — phone page: scan, redeem `name`/`model`, announce `relay`
+- `demo/mobile` — phone page: scan, redeem `name`/`model`, announce `TypeLabel` then `relay`
 - `examples/pc` — register hostname, show QR, print local path after handshake
 
 Wire rules: [docs/PROTOCOL.md](docs/PROTOCOL.md). The admin page reads labels
@@ -28,10 +28,12 @@ A product server embeds `relay.Hub` and implements `store.Store` in its own
 database. It does not open a second SQLite file, copy frames, or mount
 `/pairlink/admin` (those routes stay dark until `SetAdminToken`).
 
-- `Host.Name` is the announced hostname. A product display name stays in the
-  product table.
+- `Host.Name` is the announced hostname (register, or a later `TypeLabel` on
+  the host socket). A product display name stays in the product table.
 - `Binding.DeviceName` and `Binding.DeviceModel` round-trip from redeem
-  `name` and `model`. Empty does not mean the fingerprint.
+  `name` and `model`, and from a later `TypeLabel` on that device socket.
+  `SetDeviceLabels` is the store method. Empty does not mean the fingerprint,
+  and a name is not parsed into a model.
 - Live path is `Hub.LinkPath`: `relay`, `direct`, or empty. Empty is "no fresh
   announcement". A UI may label that offline. Do not store the path.
 - `Binding.LastConnected` moves forward when that device websocket is accepted

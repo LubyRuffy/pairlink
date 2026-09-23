@@ -22,8 +22,13 @@ No cookies, no Gateway Key.
 
 WebSocket and UDP frames: see `protocol.Frame`. TypeData payloads are opaque.
 `name` on register and redeem, and `model` on redeem, are operator-visible
-coordination metadata, not session plaintext. The hub does not read a name
-out of TypeData. `path` on a binding is the latest `TypePath` announcement
+coordination metadata, not session plaintext. The same strings can be announced
+again after the relay socket connects, as `TypeLabel` (`{"name","model"}`).
+The hub stores that frame and does not forward it. A host socket updates its
+own name. A device socket updates `device_name` and `device_model` for that
+device public key. An empty sanitized field does not clear a stored label, and
+a name is never split into a model. The hub does not read a name out of
+TypeData, TypeHandshake, or TypeDisco. `path` on a binding is the latest `TypePath` announcement
 (`relay` or `direct`) for 45s. A forward trace event with `path=relay` only
 means that hop crossed the hub.
 

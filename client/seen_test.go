@@ -17,7 +17,9 @@ func TestDeviceSocketStampsLastConnected(t *testing.T) {
 	hub, hubURL, cancel := startHub(t)
 	defer cancel()
 	var step atomic.Int64
-	base := time.Date(2026, 9, 23, 4, 5, 6, 0, time.UTC)
+	// Pairing expiry is compared to the wall clock inside the store. A frozen
+	// hub clock older than the pairing TTL makes a fresh code look expired.
+	base := time.Now().UTC().Truncate(time.Second)
 	hub.SetNow(func() time.Time {
 		return base.Add(time.Duration(step.Load()) * time.Second)
 	})

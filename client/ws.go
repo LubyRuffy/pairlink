@@ -66,6 +66,9 @@ func (c *Conn) connectWS(ctx context.Context) error {
 	if old != nil {
 		_ = old.Close()
 	}
+	// First frame on this socket. The endpoint already knows its labels;
+	// do not wait for an encrypted handshake to tell the hub who it is.
+	c.announceLabels()
 	return nil
 }
 

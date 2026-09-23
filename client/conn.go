@@ -31,6 +31,11 @@ type Config struct {
 	// not idle-drop the host WebSocket. Zero means 15s. Must be less than
 	// the hub's quiet-WS deadline (60s) and typical nginx read timeouts.
 	KeepAlive time.Duration
+	// Name and Model are this endpoint's own labels. They are known before
+	// dial. The relay socket announces them as soon as it connects, and
+	// again when SetLabels changes them. Model is empty for a host.
+	Name  string
+	Model string
 }
 
 type Conn struct {
@@ -42,12 +47,14 @@ type Conn struct {
 	stun  string
 	local []string
 
-	mu        sync.Mutex
-	links     map[string]*Link // peer pub hex
-	pending   map[string]*crypto.Handshake
-	onLink    func(*Link)
-	closed    chan struct{}
-	closeOnce sync.Once
+	mu         sync.Mutex
+	labelName  string
+	labelModel string
+	links      map[string]*Link // peer pub hex
+	pending    map[string]*crypto.Handshake
+	onLink     func(*Link)
+	closed     chan struct{}
+	closeOnce  sync.Once
 }
 
 type Link struct {
@@ -82,11 +89,13 @@ func Dial(ctx context.Context, cfg Config) (*Conn, error) {
 		hc = &http.Client{Timeout: 15 * time.Second}
 	}
 	c := &Conn{
-		cfg:     cfg,
-		http:    hc,
-		links:   map[string]*Link{},
-		pending: map[string]*crypto.Handshake{},
-		closed:  make(chan struct{}),
+		cfg:        cfg,
+		http:       hc,
+		labelName:  protocol.SanitizeLabel(cfg.Name),
+		labelModel: protocol.SanitizeLabel(cfg.Model),
+		links:      map[string]*Link{},
+		pending:    map[string]*crypto.Handshake{},
+		closed:     make(chan struct{}),
 	}
 	if err := c.connectWS(ctx); err != nil {
 		return nil, err

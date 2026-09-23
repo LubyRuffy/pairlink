@@ -166,6 +166,58 @@ func runStoreConformance(t *testing.T, open func(t *testing.T) Store) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := st.PutBinding(ctx, Binding{
+		ID: "bind-same", HostPub: otherHost, DevicePub: devPub, TicketHash: HashSecret("ticket-same"),
+		DeviceName: "same-old", DeviceModel: "same-mod", Created: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	all, err = st.ListAllBindings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeLabel := map[string]Binding{}
+	for _, row := range all {
+		beforeLabel[row.ID] = row
+	}
+	if err := st.SetDeviceLabels(ctx, devPub, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetDeviceLabels(ctx, []byte{9}, "short", "short"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetDeviceLabels(ctx, hostPub, "host-key", "host-key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetDeviceLabels(ctx, devPub, "renamed", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetDeviceLabels(ctx, devPub, "", "mod-next"); err != nil {
+		t.Fatal(err)
+	}
+	all, err = st.ListAllBindings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotLabel := map[string]Binding{}
+	for _, row := range all {
+		gotLabel[row.ID] = row
+	}
+	if gotLabel["bind-1"].DeviceName != "renamed" || gotLabel["bind-1"].DeviceModel != "mod-next" {
+		t.Fatalf("revoked device labels %+v", gotLabel["bind-1"])
+	}
+	if gotLabel["bind-same"].DeviceName != "renamed" || gotLabel["bind-same"].DeviceModel != "mod-next" {
+		t.Fatalf("same device on another host %+v", gotLabel["bind-same"])
+	}
+	if gotLabel["bind-other"].DeviceName != "" || gotLabel["bind-other"].DeviceModel != "" {
+		t.Fatalf("other device changed %+v", gotLabel["bind-other"])
+	}
+	if !gotLabel["bind-1"].Created.Equal(beforeLabel["bind-1"].Created) || !gotLabel["bind-1"].LastConnected.IsZero() {
+		t.Fatalf("label write moved timestamps %+v", gotLabel["bind-1"])
+	}
+	if gotLabel["bind-same"].DeviceName == "same-old" {
+		t.Fatal("same device public key was not updated")
+	}
 	seen := time.Date(2026, 9, 23, 1, 2, 3, 0, time.UTC)
 	if err := st.NoteDeviceSeen(ctx, devPub, seen); err != nil {
 		t.Fatal(err)

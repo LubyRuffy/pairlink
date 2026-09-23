@@ -391,6 +391,33 @@ func (s *SQLite) NoteDeviceSeen(ctx context.Context, devicePub []byte, at time.T
 	})
 }
 
+func (s *SQLite) SetDeviceLabels(ctx context.Context, devicePub []byte, name, model string) error {
+	if len(devicePub) != 32 || (name == "" && model == "") {
+		return nil
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		rows, err := loadBindings(tx)
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if !bytes.Equal(row.DevicePub, devicePub) {
+				continue
+			}
+			if name != "" {
+				row.DeviceName = name
+			}
+			if model != "" {
+				row.DeviceModel = model
+			}
+			if err := tx.Save(&row).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (s *SQLite) CountBindings(ctx context.Context, hostPub []byte) (int, error) {
 	list, err := s.ListBindings(ctx, hostPub)
 	if err != nil {

@@ -21,10 +21,16 @@ type pathObs struct {
 }
 
 func (h *Hub) clock() time.Time {
-	if h != nil && h.now != nil {
-		return h.now()
+	if h == nil {
+		return time.Now()
 	}
-	return time.Now()
+	h.mu.Lock()
+	now := h.now
+	h.mu.Unlock()
+	if now == nil {
+		return time.Now()
+	}
+	return now()
 }
 
 func pathKey(a, b []byte) string {

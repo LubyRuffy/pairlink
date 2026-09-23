@@ -116,9 +116,16 @@ async function publicKey() {
 }
 
 let socket = null;
-function announce(ws, dst, src, sid) {
+let session = null;
+function announcePath(ws, dst, src, sid) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(frame(5, dst, src, sid, new Uint8Array([1])));
+}
+function announceLabels(ws, src, sid) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const lab = labels();
+  const body = new TextEncoder().encode(JSON.stringify({ name: lab.name, model: lab.model }));
+  ws.send(frame(6, new Uint8Array(32), src, sid, body));
 }
 
 async function login(raw) {
@@ -150,9 +157,11 @@ async function login(raw) {
   socket = ws;
   ws.binaryType = "arraybuffer";
   ws.onopen = () => {
-    announce(ws, hostPub, pub, sid);
+    session = { dst: hostPub, src: pub, sid: sid };
+    announceLabels(ws, pub, sid);
+    announcePath(ws, hostPub, pub, sid);
     clearInterval(timer);
-    timer = setInterval(() => announce(ws, hostPub, pub, sid), 15000);
+    timer = setInterval(() => announcePath(ws, hostPub, pub, sid), 15000);
     setStatus("已登录\n设备 " + (lab.name || "未命名") + (lab.model ? " / " + lab.model : "") + "\n数据面：中转");
   };
   ws.onclose = () => setStatus("连接断开");
@@ -175,6 +184,12 @@ async function decodeFile(file) {
   return body.text;
 }
 
+for (const id of ["#name", "#model"]) {
+  document.querySelector(id).addEventListener("change", () => {
+    if (!socket || !session) return;
+    announceLabels(socket, session.src, session.sid);
+  });
+}
 document.querySelector("#fileBtn").addEventListener("click", () => document.querySelector("#file").click());
 document.querySelector("#file").addEventListener("change", async (ev) => {
   const file = ev.target.files && ev.target.files[0];

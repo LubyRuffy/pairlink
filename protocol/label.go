@@ -1,6 +1,10 @@
 package protocol
 
-import "strings"
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+)
 
 // LabelMaxRunes is the operator-visible name cap for a host or a device.
 // The hub stores the sanitized string. It is not an application payload.
@@ -33,4 +37,33 @@ func SanitizeLabel(raw string) string {
 		out = strings.TrimSpace(string(runes[:LabelMaxRunes]))
 	}
 	return out
+}
+
+// Label fields are announced separately. A name that happens to contain a
+// model string is still just a name; callers must not split it.
+type labelBody struct {
+	Name  string `json:"name"`
+	Model string `json:"model"`
+}
+
+// MarshalLabel encodes a hub-visible label announcement. Name and model stay
+// in their own fields. Empty fields are included so a missing model is not
+// inferred from the name.
+func MarshalLabel(name, model string) ([]byte, error) {
+	return json.Marshal(labelBody{Name: SanitizeLabel(name), Model: SanitizeLabel(model)})
+}
+
+// ParseLabel reads a TypeLabel payload. The bool is false when the payload is
+// not a JSON object, including a TypePath code. Returned strings are already
+// sanitized; empty means that field was not provided.
+func ParseLabel(payload []byte) (name, model string, ok bool) {
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 || payload[0] != '{' {
+		return "", "", false
+	}
+	var in labelBody
+	if err := json.Unmarshal(payload, &in); err != nil {
+		return "", "", false
+	}
+	return SanitizeLabel(in.Name), SanitizeLabel(in.Model), true
 }

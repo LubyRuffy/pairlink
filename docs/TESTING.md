@@ -28,6 +28,12 @@ Required cases:
   labels clip at 80 runes.
 - Redeem stores device `name` and `model`. A TypeData payload does not change
   the host label.
+- After the relay socket connects, a `TypeLabel` frame stores the host name or
+  the device name and model. An empty sanitized field does not wipe a stored
+  label. Gluing a system and a model into `name` leaves `model` empty. Another
+  device on the same host is unchanged. `TypePath`, `TypeData`, and
+  `TypeHandshake` do not update labels, and the label frame is not forwarded.
+  The client's first socket frame is that announcement, before any handshake.
 - Admin snapshot requires the admin token, returns hostname / device name /
   model / `direct` then `relay`, and does not contain the host token, pairing
   code, or device ticket. Admin disabled is 404.
