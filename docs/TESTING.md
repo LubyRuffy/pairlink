@@ -24,3 +24,14 @@ Required cases:
 - `ClosePeers` closes every upgraded relay socket without waiting for the idle
   deadline. A device upgrade while its host is absent is closed immediately
   instead of staying open and dropping frames.
+- Register stores a host label; an empty label does not wipe it; overlong
+  labels clip at 80 runes.
+- Redeem stores device `name` and `model`. A TypeData payload does not change
+  the host label.
+- Admin snapshot requires the admin token, returns hostname / device name /
+  model / `direct` then `relay`, and does not contain the host token, pairing
+  code, or device ticket. Admin disabled is 404.
+- SQLite reopens with the same host name and device model. Two hosts with
+  empty public keys stay two rows.
+- Phone QR upload of a generated offer PNG round-trips the URI. A non-QR image
+  is rejected without echoing bytes.

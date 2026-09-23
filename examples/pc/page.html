@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pairlink PC</title>
+<style>
+  body { font: 16px/1.45 ui-sans-serif, system-ui, sans-serif; margin: 24px; background: #f6f5f2; color: #1a1a1a; }
+  img { background: #fff; padding: 12px; }
+  button { font: inherit; padding: 8px 12px; }
+</style>
+</head>
+<body>
+<h1 id="name"></h1>
+<p id="hub"></p>
+<p id="path"></p>
+<p><img id="qr" alt="配对二维码" width="280" height="280"></p>
+<button type="button" id="refresh">重新生成二维码</button>
+<script>
+async function tick() {
+  const res = await fetch("/status");
+  const body = await res.json();
+  document.querySelector("#name").textContent = body.name || "";
+  document.querySelector("#hub").textContent = body.hub || "";
+  const path = body.path === "direct" ? "直连" : (body.path === "relay" ? "中转" : "还没有端到端会话");
+  document.querySelector("#path").textContent = "本机数据面：" + path;
+}
+document.querySelector("#refresh").addEventListener("click", async () => {
+  await fetch("/offer", { method: "POST" });
+  document.querySelector("#qr").src = "/qr.png?t=" + Date.now();
+});
+document.querySelector("#qr").src = "/qr.png?t=" + Date.now();
+tick();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>

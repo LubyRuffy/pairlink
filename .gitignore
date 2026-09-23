@@ -5,3 +5,6 @@
 *.out
 .DS_Store
 coverage.out
+*.db
+pairlink-cert.pem
+pairlink-offer.png

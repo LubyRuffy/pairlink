@@ -42,6 +42,10 @@ type Hub struct {
 
 	// Idle is the quiet-WebSocket deadline. Zero means 60s. Tests shorten it.
 	Idle time.Duration
+
+	// adminHash is sha256 of the management token. Empty disables admin routes.
+	// The raw token is never stored.
+	adminHash []byte
 }
 
 type peerConn struct {
@@ -118,6 +122,12 @@ func (h *Hub) Handler() http.Handler {
 	mux.HandleFunc("GET /pairlink/v1/trace/", h.handleTrace)
 	mux.HandleFunc("POST /pairlink/v1/bindings/{id}/revoke", h.handleRevoke)
 	mux.HandleFunc("GET /pairlink/v1/bindings", h.handleListBindings)
+	mux.HandleFunc("GET /pairlink/v1/admin/snapshot", h.handleAdminSnapshot)
+	mux.HandleFunc("POST /pairlink/v1/admin/hosts", h.handleAdminIssueHost)
+	mux.HandleFunc("POST /pairlink/v1/admin/bindings/{id}/revoke", h.handleAdminRevoke)
+	mux.HandleFunc("GET /pairlink/v1/admin/trace/{id}", h.handleAdminTrace)
+	mux.HandleFunc("GET /pairlink/admin", h.handleAdminPage)
+	mux.HandleFunc("GET /pairlink/admin/", h.handleAdminPage)
 	return withBrowserCORS(mux)
 }
 
@@ -251,6 +261,7 @@ func (h *Hub) handleRedeem(w http.ResponseWriter, r *http.Request) {
 		Code      string `json:"code"`
 		DevicePub string `json:"device_pub"`
 		Name      string `json:"name"`
+		Model     string `json:"model"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad json")
@@ -290,13 +301,14 @@ func (h *Hub) handleRedeem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b := store.Binding{
-		ID:         bid,
-		HostPub:    p.HostPub,
-		DevicePub:  dev,
-		TicketHash: store.HashSecret(ticket),
-		Created:    h.now(),
-		SessionID:  p.SessionID,
-		DeviceName: protocol.SanitizeLabel(req.Name),
+		ID:          bid,
+		HostPub:     p.HostPub,
+		DevicePub:   dev,
+		TicketHash:  store.HashSecret(ticket),
+		Created:     h.now(),
+		SessionID:   p.SessionID,
+		DeviceName:  protocol.SanitizeLabel(req.Name),
+		DeviceModel: protocol.SanitizeLabel(req.Model),
 	}
 	if err := h.Store.PutBinding(r.Context(), b); err != nil {
 		httpError(w, http.StatusInternalServerError, "store")
@@ -325,19 +337,25 @@ func (h *Hub) handleListBindings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type row struct {
-		ID         string `json:"id"`
-		DeviceFP   string `json:"device_fp"`
-		DeviceName string `json:"device_name,omitempty"`
-		CreatedAt  string `json:"created_at"`
-		SessionID  string `json:"session_id"`
+		ID          string `json:"id"`
+		DeviceFP    string `json:"device_fp"`
+		DeviceName  string `json:"device_name,omitempty"`
+		DeviceModel string `json:"device_model,omitempty"`
+		CreatedAt   string `json:"created_at"`
+		SessionID   string `json:"session_id"`
+		Online      bool   `json:"online"`
+		Path        string `json:"path"`
 	}
 	out := make([]row, 0, len(list))
 	for _, b := range list {
 		out = append(out, row{
 			ID: b.ID, DeviceFP: crypto.Fingerprint(b.DevicePub),
-			DeviceName: b.DeviceName,
-			CreatedAt:  b.Created.UTC().Format(time.RFC3339),
-			SessionID:  hex.EncodeToString(b.SessionID),
+			DeviceName:  b.DeviceName,
+			DeviceModel: b.DeviceModel,
+			CreatedAt:   b.Created.UTC().Format(time.RFC3339),
+			SessionID:   hex.EncodeToString(b.SessionID),
+			Online:      h.peerOnline(b.DevicePub),
+			Path:        h.LinkPath(host.Pub, b.DevicePub),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"bindings": out})

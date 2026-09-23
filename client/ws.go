@@ -36,6 +36,18 @@ func (c *Conn) stopped() bool {
 	}
 }
 
+func (c *Conn) wsDialer() *websocket.Dialer {
+	d := &websocket.Dialer{HandshakeTimeout: 10 * time.Second}
+	if c.http == nil || c.http.Transport == nil {
+		return d
+	}
+	tr, ok := c.http.Transport.(*http.Transport)
+	if ok && tr != nil && tr.TLSClientConfig != nil {
+		d.TLSClientConfig = tr.TLSClientConfig.Clone()
+	}
+	return d
+}
+
 func (c *Conn) connectWS(ctx context.Context) error {
 	info, _ := c.getInfo(ctx)
 	if info != "" {
@@ -43,8 +55,7 @@ func (c *Conn) connectWS(ctx context.Context) error {
 	}
 	hdr := http.Header{}
 	hdr.Set("Authorization", "Bearer "+c.cfg.Token)
-	d := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
-	ws, _, err := d.DialContext(ctx, httpToWS(c.cfg.HubURL), hdr)
+	ws, _, err := c.wsDialer().DialContext(ctx, httpToWS(c.cfg.HubURL), hdr)
 	if err != nil {
 		return fmt.Errorf("client: ws: %w", err)
 	}

@@ -21,14 +21,32 @@ func NewMemory() *Memory { return &Memory{} }
 func (m *Memory) PutHost(_ context.Context, h Host) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for i, x := range m.hosts {
-		if bytes.Equal(x.Pub, h.Pub) || bytes.Equal(x.TokenHash, h.TokenHash) {
-			m.hosts[i] = h
-			return nil
-		}
+	if i := hostIndex(m.hosts, h); i >= 0 {
+		m.hosts[i] = mergeHost(m.hosts[i], h)
+		return nil
 	}
 	m.hosts = append(m.hosts, h)
 	return nil
+}
+
+// hostIndex prefers the token, then a real 32-byte public key. An empty
+// public key must not match every not-yet-registered host.
+func hostIndex(hosts []Host, h Host) int {
+	if len(h.TokenHash) > 0 {
+		for i, x := range hosts {
+			if bytes.Equal(x.TokenHash, h.TokenHash) {
+				return i
+			}
+		}
+	}
+	if len(h.Pub) == 32 {
+		for i, x := range hosts {
+			if len(x.Pub) == 32 && bytes.Equal(x.Pub, h.Pub) {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 func (m *Memory) HostByTokenHash(_ context.Context, hash []byte) (Host, error) {
@@ -51,6 +69,12 @@ func (m *Memory) HostByPub(_ context.Context, pub []byte) (Host, error) {
 		}
 	}
 	return Host{}, ErrNotFound
+}
+
+func (m *Memory) ListHosts(_ context.Context) ([]Host, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]Host(nil), m.hosts...), nil
 }
 
 func (m *Memory) PutPairing(_ context.Context, p Pairing) error {
@@ -146,6 +170,12 @@ func (m *Memory) ListBindings(_ context.Context, hostPub []byte) ([]Binding, err
 		}
 	}
 	return out, nil
+}
+
+func (m *Memory) ListAllBindings(_ context.Context) ([]Binding, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]Binding(nil), m.bindings...), nil
 }
 
 func (m *Memory) RevokeBinding(_ context.Context, id string) error {

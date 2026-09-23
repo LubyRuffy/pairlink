@@ -6,7 +6,8 @@ make check
 ```
 
 - No business types (no Project, Thread, Turn).
-- Hub forwards TypeData without parsing the payload.
+- Hub forwards TypeData without parsing the payload. Host and device labels
+  are control-plane fields on register and redeem, not a TypeData body.
 - Never log host tokens, pairing codes, tickets, or session keys.
 - Listen addresses and hub URLs are flags/config, never compiled-in hostnames.
 - A path implementation that cannot fall back to relay is unfinished.

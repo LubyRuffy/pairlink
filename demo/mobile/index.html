@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pairlink 扫码</title>
+<style>
+  body { font: 16px/1.45 ui-sans-serif, system-ui, sans-serif; margin: 16px; color: #1a1a1a; background: #f6f5f2; }
+  h1 { font-size: 20px; }
+  label { display: block; margin: 10px 0; }
+  input, textarea, button { font: inherit; width: 100%; box-sizing: border-box; padding: 8px; }
+  button { margin-top: 8px; }
+  video { width: 100%; background: #111; margin-top: 8px; }
+  #status { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>扫码登录</h1>
+<p>对着 PC 上的二维码。登录后这条连接走中转；浏览器没有 UDP，打不了洞。</p>
+<label>设备名称<input id="name" autocomplete="off"></label>
+<label>型号<input id="model" autocomplete="off"></label>
+<button type="button" id="fileBtn">拍照 / 选图</button>
+<input id="file" type="file" accept="image/*" capture="environment" hidden>
+<button type="button" id="liveBtn">打开摄像头</button>
+<video id="video" playsinline hidden></video>
+<label>或粘贴二维码内容<textarea id="paste" rows="3"></textarea></label>
+<button type="button" id="pasteBtn">用粘贴内容登录</button>
+<p id="status"></p>
+<script>
+const statusEl = document.querySelector("#status");
+const video = document.querySelector("#video");
+let timer = 0;
+let stream = null;
+
+function setStatus(s) { statusEl.textContent = s; }
+
+function labels() {
+  return {
+    name: document.querySelector("#name").value.trim(),
+    model: document.querySelector("#model").value.trim()
+  };
+}
+
+function b64url(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function b64urlDecode(s) {
+  s = s.replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function hexToBytes(h) {
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.substr(i * 2, 2), 16);
+  return out;
+}
+
+function parseOffer(raw) {
+  raw = raw.trim();
+  const scheme = "pairlink:v1:";
+  if (!raw.startsWith(scheme)) throw new Error("不是 pairlink 二维码");
+  let rest = raw.slice(scheme.length);
+  const q = rest.indexOf("?");
+  if (q >= 0) rest = rest.slice(0, q);
+  const spkAt = rest.lastIndexOf(":");
+  const codeAt = rest.lastIndexOf(":", spkAt - 1);
+  if (spkAt <= 0 || codeAt <= 0) throw new Error("二维码不完整");
+  const hub = rest.slice(0, codeAt);
+  const code = rest.slice(codeAt + 1, spkAt);
+  if (!hub || !code) throw new Error("二维码不完整");
+  return { hub, code };
+}
+
+function frame(type, dst, src, sid, payload) {
+  const p = payload || new Uint8Array(0);
+  const out = new Uint8Array(89 + p.length);
+  out.set([0x50, 0x4c, 0x4b, 0x31]);
+  out[4] = type;
+  out.set(dst, 5);
+  out.set(src, 37);
+  if (sid && sid.length === 16) out.set(sid, 69);
+  const n = p.length;
+  out[85] = (n >>> 24) & 255;
+  out[86] = (n >>> 16) & 255;
+  out[87] = (n >>> 8) & 255;
+  out[88] = n & 255;
+  out.set(p, 89);
+  return out;
+}
+
+function wsURL(hub) {
+  const u = new URL(hub);
+  u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+  u.pathname = u.pathname.replace(/\/$/, "") + "/pairlink/v1/ws";
+  u.search = "";
+  u.hash = "";
+  return u.toString();
+}
+
+async function publicKey() {
+  if (!crypto.subtle) throw new Error("这个浏览器没有 WebCrypto");
+  let kp;
+  try {
+    kp = await crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]);
+  } catch (e) {
+    throw new Error("这个浏览器没有 X25519");
+  }
+  return new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey));
+}
+
+let socket = null;
+function announce(ws, dst, src, sid) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(frame(5, dst, src, sid, new Uint8Array([1])));
+}
+
+async function login(raw) {
+  const lab = labels();
+  if (!lab.name && !lab.model) {
+    setStatus("先填设备名称或型号");
+    return;
+  }
+  const offer = parseOffer(raw);
+  setStatus("正在登录 " + new URL(offer.hub).host);
+  const pub = await publicKey();
+  const res = await fetch(offer.hub.replace(/\/$/, "") + "/pairlink/v1/pairings/redeem", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      code: offer.code,
+      device_pub: b64url(pub),
+      name: lab.name,
+      model: lab.model
+    })
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || ("登录失败 " + res.status));
+  document.querySelector("#paste").value = "";
+  const hostPub = b64urlDecode(body.host_pub);
+  const sid = hexToBytes(body.session_id);
+  if (socket) socket.close();
+  const ws = new WebSocket(wsURL(offer.hub), ["pairlink.ticket." + body.ticket]);
+  socket = ws;
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => {
+    announce(ws, hostPub, pub, sid);
+    clearInterval(timer);
+    timer = setInterval(() => announce(ws, hostPub, pub, sid), 15000);
+    setStatus("已登录\n设备 " + (lab.name || "未命名") + (lab.model ? " / " + lab.model : "") + "\n数据面：中转");
+  };
+  ws.onclose = () => setStatus("连接断开");
+  ws.onerror = () => setStatus("连接失败");
+}
+
+async function decodeFile(file) {
+  const bmp = await createImageBitmap(file);
+  if ("BarcodeDetector" in window) {
+    try {
+      const codes = await new BarcodeDetector({ formats: ["qr_code"] }).detect(bmp);
+      if (codes[0] && codes[0].rawValue) return codes[0].rawValue;
+    } catch (e) {}
+  }
+  const fd = new FormData();
+  fd.append("image", file);
+  const res = await fetch("/demo/qr", { method: "POST", body: fd });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || "这张图解不出二维码");
+  return body.text;
+}
+
+document.querySelector("#fileBtn").addEventListener("click", () => document.querySelector("#file").click());
+document.querySelector("#file").addEventListener("change", async (ev) => {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  try {
+    await login(await decodeFile(file));
+  } catch (e) {
+    setStatus(e.message || String(e));
+  }
+});
+document.querySelector("#pasteBtn").addEventListener("click", async () => {
+  try {
+    await login(document.querySelector("#paste").value);
+  } catch (e) {
+    setStatus(e.message || String(e));
+  }
+});
+document.querySelector("#liveBtn").addEventListener("click", async () => {
+  if (!("BarcodeDetector" in window) || !navigator.mediaDevices) {
+    setStatus("这个浏览器不能实时扫，用拍照");
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+  } catch (e) {
+    setStatus("摄像头打不开。手机用 http 时请改拍照，或让服务器开 -tls");
+    return;
+  }
+  video.hidden = false;
+  video.srcObject = stream;
+  await video.play();
+  const det = new BarcodeDetector({ formats: ["qr_code"] });
+  clearInterval(timer);
+  timer = setInterval(async () => {
+    try {
+      const codes = await det.detect(video);
+      if (codes[0] && codes[0].rawValue) {
+        clearInterval(timer);
+        stream.getTracks().forEach((t) => t.stop());
+        video.hidden = true;
+        await login(codes[0].rawValue);
+      }
+    } catch (e) {}
+  }, 400);
+});
+
+if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+  navigator.userAgentData.getHighEntropyValues(["model", "platform"]).then((v) => {
+    if (v.model && !document.querySelector("#model").value) document.querySelector("#model").value = v.model;
+    if (v.platform && !document.querySelector("#name").value) document.querySelector("#name").value = v.platform;
+  }).catch(() => {});
+}
+</script>
+</body>
+</html>

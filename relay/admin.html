@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pairlink</title>
+<style>
+  body { font: 15px/1.45 ui-sans-serif, system-ui, sans-serif; margin: 24px; color: #1a1a1a; background: #f6f5f2; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  p { margin: 0 0 12px; color: #444; }
+  form, .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  input { font: inherit; padding: 6px 8px; min-width: 240px; }
+  button { font: inherit; padding: 6px 10px; }
+  table { border-collapse: collapse; width: 100%; background: #fff; margin: 8px 0 20px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #eee; }
+  .secret { font-family: ui-monospace, monospace; word-break: break-all; }
+  .bad { color: #8a1f1f; }
+</style>
+</head>
+<body>
+<h1>pairlink 管理</h1>
+<p>这里只看控制面：主机名、设备名、型号、以及端点宣告的数据面。直连时业务包不经过这里。</p>
+<form id="auth">
+  <input id="token" type="password" autocomplete="off" placeholder="管理口令">
+  <button type="submit">保存</button>
+  <button type="button" id="issue">签发主机口令</button>
+  <button type="button" id="refresh">刷新</button>
+</form>
+<p id="msg"></p>
+<pre id="once" class="secret" hidden></pre>
+<h2>主机</h2>
+<table><thead><tr><th>名称</th><th>指纹</th><th>已登记公钥</th><th>在线</th></tr></thead><tbody id="hosts"></tbody></table>
+<h2>绑定</h2>
+<table><thead><tr><th>主机</th><th>设备名</th><th>型号</th><th>在线</th><th>数据面</th><th>会话</th><th></th></tr></thead><tbody id="binds"></tbody></table>
+<script>
+const tokenEl = document.querySelector("#token");
+const msg = document.querySelector("#msg");
+const once = document.querySelector("#once");
+const key = "pairlink.admin";
+tokenEl.value = sessionStorage.getItem(key) || "";
+
+function headers() {
+  return { "Authorization": "Bearer " + tokenEl.value.trim(), "Content-Type": "application/json" };
+}
+
+function cell(text) {
+  const td = document.createElement("td");
+  td.textContent = text || "";
+  return td;
+}
+
+function pathText(p) {
+  if (p === "direct") return "直连";
+  if (p === "relay") return "中转";
+  return "无宣告";
+}
+
+async function snapshot() {
+  const tok = tokenEl.value.trim();
+  if (!tok) { msg.textContent = "先填管理口令"; return; }
+  const res = await fetch("/pairlink/v1/admin/snapshot", { headers: headers() });
+  if (!res.ok) { msg.textContent = "快照失败 " + res.status; return; }
+  const body = await res.json();
+  msg.textContent = "";
+  const hosts = document.querySelector("#hosts");
+  hosts.replaceChildren();
+  for (const h of body.hosts || []) {
+    const tr = document.createElement("tr");
+    tr.append(cell(h.name), cell(h.fp), cell(h.registered ? "是" : "否"), cell(h.online ? "在线" : "离线"));
+    hosts.append(tr);
+  }
+  const binds = document.querySelector("#binds");
+  binds.replaceChildren();
+  for (const b of body.bindings || []) {
+    const tr = document.createElement("tr");
+    tr.append(
+      cell(b.host_name || b.host_fp),
+      cell(b.device_name),
+      cell(b.device_model),
+      cell(b.revoked ? "已吊销" : (b.online ? "在线" : "离线")),
+      cell(b.revoked ? "" : pathText(b.path)),
+      cell(b.session_id)
+    );
+    const td = document.createElement("td");
+    if (!b.revoked) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "吊销";
+      btn.addEventListener("click", () => revoke(b.id));
+      td.append(btn);
+    }
+    tr.append(td);
+    binds.append(tr);
+  }
+}
+
+async function revoke(id) {
+  const res = await fetch("/pairlink/v1/admin/bindings/" + encodeURIComponent(id) + "/revoke", { method: "POST", headers: headers() });
+  if (!res.ok) { msg.textContent = "吊销失败 " + res.status; return; }
+  await snapshot();
+}
+
+document.querySelector("#auth").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  sessionStorage.setItem(key, tokenEl.value.trim());
+  snapshot();
+});
+document.querySelector("#refresh").addEventListener("click", snapshot);
+document.querySelector("#issue").addEventListener("click", async () => {
+  const res = await fetch("/pairlink/v1/admin/hosts", { method: "POST", headers: headers() });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { msg.textContent = "签发失败 " + res.status; return; }
+  once.hidden = false;
+  once.textContent = "主机口令只显示这一次，复制给 PC：\n" + (body.token || "");
+  await snapshot();
+});
+setInterval(() => { if (tokenEl.value.trim()) snapshot(); }, 2000);
+if (tokenEl.value.trim()) snapshot();
+</script>
+</body>
+</html>

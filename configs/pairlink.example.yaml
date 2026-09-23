@@ -1,0 +1,5 @@
+listen: 127.0.0.1:7780
+udp: 127.0.0.1:7781
+database: pairlink.db
+tls: false
+tls_cert: pairlink-cert.pem

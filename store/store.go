@@ -44,8 +44,10 @@ type Binding struct {
 	Revoked    bool
 	Created    time.Time
 	SessionID  []byte
-	// DeviceName is the device's own label (model line). Empty means unannounced.
-	DeviceName string
+	// DeviceName and DeviceModel are display labels from redeem (`name`, `model`).
+	// Empty means that field was not sent. Neither is a secret or a path.
+	DeviceName  string
+	DeviceModel string
 }
 
 type TraceEvent struct {
@@ -62,6 +64,7 @@ type Store interface {
 	PutHost(ctx context.Context, h Host) error
 	HostByTokenHash(ctx context.Context, hash []byte) (Host, error)
 	HostByPub(ctx context.Context, pub []byte) (Host, error)
+	ListHosts(ctx context.Context) ([]Host, error)
 
 	PutPairing(ctx context.Context, p Pairing) error
 	ConsumePairing(ctx context.Context, codeHash []byte) (Pairing, error)
@@ -71,11 +74,31 @@ type Store interface {
 	BindingByTicketHash(ctx context.Context, hash []byte) (Binding, error)
 	BindingByPeers(ctx context.Context, hostPub, devicePub []byte) (Binding, error)
 	ListBindings(ctx context.Context, hostPub []byte) ([]Binding, error)
+	ListAllBindings(ctx context.Context) ([]Binding, error)
 	RevokeBinding(ctx context.Context, id string) error
 	CountBindings(ctx context.Context, hostPub []byte) (int, error)
 
 	AppendTrace(ctx context.Context, ev TraceEvent) error
 	Trace(ctx context.Context, ref string) ([]TraceEvent, error)
+}
+
+// mergeHost keeps identity fields when the incoming record leaves them empty.
+// An empty name does not wipe a stored label. An empty public key does not
+// detach a token from a host that already registered one.
+func mergeHost(prev, next Host) Host {
+	if len(next.TokenHash) == 0 {
+		next.TokenHash = prev.TokenHash
+	}
+	if len(next.Pub) == 0 {
+		next.Pub = prev.Pub
+	}
+	if next.Name == "" {
+		next.Name = prev.Name
+	}
+	if next.Created.IsZero() {
+		next.Created = prev.Created
+	}
+	return next
 }
 
 func HashSecret(raw string) []byte {

@@ -80,6 +80,16 @@ func RegisterHost(ctx context.Context, hubURL, token string, id *crypto.Identity
 // RegisterHostLabel is RegisterHost plus the host's own name. An empty label
 // leaves a name the hub already stored.
 func RegisterHostLabel(ctx context.Context, hubURL, token, label string, id *crypto.Identity) error {
+	return registerHost(ctx, nil, hubURL, token, label, id)
+}
+
+// RegisterHostLabelHTTP is RegisterHostLabel with a caller-supplied client
+// (TLS roots, timeouts). hc may be nil.
+func RegisterHostLabelHTTP(ctx context.Context, hc *http.Client, hubURL, token, label string, id *crypto.Identity) error {
+	return registerHost(ctx, hc, hubURL, token, label, id)
+}
+
+func registerHost(ctx context.Context, hc *http.Client, hubURL, token, label string, id *crypto.Identity) error {
 	body := map[string]string{
 		"pub":   crypto.PublicBase64(id.Public()),
 		"token": token,
@@ -87,7 +97,7 @@ func RegisterHostLabel(ctx context.Context, hubURL, token, label string, id *cry
 	if label = strings.TrimSpace(label); label != "" {
 		body["name"] = label
 	}
-	return postJSON(ctx, nil, hubURL, token, "/pairlink/v1/hosts", body, nil)
+	return postJSON(ctx, hc, hubURL, token, "/pairlink/v1/hosts", body, nil)
 }
 
 // RedeemOffer spends the QR pairing code. Call this before Dial with the ticket.
@@ -97,6 +107,12 @@ func RedeemOffer(ctx context.Context, offer protocol.Offer, device *crypto.Ident
 
 // RedeemOfferLabel is RedeemOffer plus the device's own name.
 func RedeemOfferLabel(ctx context.Context, offer protocol.Offer, label string, device *crypto.Identity) (ticket string, hostPub, sessionID []byte, err error) {
+	return RedeemOfferInfo(ctx, nil, offer, device, label, "")
+}
+
+// RedeemOfferInfo spends a pairing code and stores the device name and model.
+// hc may be nil. Empty labels are omitted.
+func RedeemOfferInfo(ctx context.Context, hc *http.Client, offer protocol.Offer, device *crypto.Identity, name, model string) (ticket string, hostPub, sessionID []byte, err error) {
 	var resp struct {
 		Ticket    string `json:"ticket"`
 		HostPub   string `json:"host_pub"`
@@ -106,10 +122,13 @@ func RedeemOfferLabel(ctx context.Context, offer protocol.Offer, label string, d
 		"code":       offer.Code,
 		"device_pub": crypto.PublicBase64(device.Public()),
 	}
-	if label = strings.TrimSpace(label); label != "" {
-		body["name"] = label
+	if name = strings.TrimSpace(name); name != "" {
+		body["name"] = name
 	}
-	if err = postJSON(ctx, nil, offer.HubURL, "", "/pairlink/v1/pairings/redeem", body, &resp); err != nil {
+	if model = strings.TrimSpace(model); model != "" {
+		body["model"] = model
+	}
+	if err = postJSON(ctx, hc, offer.HubURL, "", "/pairlink/v1/pairings/redeem", body, &resp); err != nil {
 		return "", nil, nil, err
 	}
 	hostPub, err = crypto.ParsePublic(resp.HostPub)
@@ -121,11 +140,14 @@ func RedeemOfferLabel(ctx context.Context, offer protocol.Offer, label string, d
 }
 
 type BindingView struct {
-	ID         string `json:"id"`
-	DeviceFP   string `json:"device_fp"`
-	DeviceName string `json:"device_name,omitempty"`
-	CreatedAt  string `json:"created_at"`
-	SessionID  string `json:"session_id"`
+	ID          string `json:"id"`
+	DeviceFP    string `json:"device_fp"`
+	DeviceName  string `json:"device_name,omitempty"`
+	DeviceModel string `json:"device_model,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	SessionID   string `json:"session_id"`
+	Online      bool   `json:"online"`
+	Path        string `json:"path"`
 }
 
 func ListBindings(ctx context.Context, hubURL, token string) ([]BindingView, error) {

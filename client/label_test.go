@@ -25,7 +25,7 @@ func TestClientSendsHostAndDeviceLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterHostLabel(ctx, srv.URL, token, "  desk-one  ", hostID); err != nil {
+	if err := RegisterHostLabelHTTP(ctx, nil, srv.URL, token, "  desk-one  ", hostID); err != nil {
 		t.Fatal(err)
 	}
 	if err := RegisterHost(ctx, srv.URL, token, hostID); err != nil {
@@ -53,14 +53,14 @@ func TestClientSendsHostAndDeviceLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := RedeemOfferLabel(ctx, offer, "pocket unit", devID); err != nil {
+	if _, _, _, err := RedeemOfferInfo(ctx, nil, offer, devID, "pocket unit", "mod-z"); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := ListBindings(ctx, srv.URL, token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].DeviceName != "pocket unit" {
+	if len(rows) != 1 || rows[0].DeviceName != "pocket unit" || rows[0].DeviceModel != "mod-z" {
 		t.Fatalf("bindings %+v", rows)
 	}
 	if rows[0].DeviceName == "127.0.0.1" {

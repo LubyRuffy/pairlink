@@ -1,7 +1,24 @@
 # Changelog
 
+## Changed
+
+- `Hub.PeerOnline` reports whether this process still has that public key's
+  websocket. `LinkPath` stays empty without a fresh TypePath; callers that
+  mean "the phone is connected" must read `PeerOnline` and not treat an empty
+  path as offline.
+- Embedders implement `store.Store` on their own database and read
+  `Hub.LinkPath`. They do not take pairlink's SQLite file or `/pairlink/admin`.
+
 ## Added
 
+- SQLite `store.Store`, admin JSON (`/pairlink/v1/admin/snapshot` and friends),
+  and `/pairlink/admin`. Snapshot shows host name, device name, device model,
+  and the live `relay` or `direct` path. Raw tokens are not in that JSON.
+- `pairlinkd -database`, `-admin-token`, `-config`, `-tls`. PC demo
+  `examples/pc` registers the hostname and shows a QR. Phone page
+  `/demo/mobile` scans and redeems with a name and model.
+- Redeem accepts optional `model`. `GET /bindings` returns `device_model`,
+  `online`, and `path`.
 - `POST /pairlink/v1/hosts` and `POST /pairlink/v1/pairings/redeem` accept an
   optional `name`. The hub stores a sanitized 80-rune host label and device
   label. An empty name does not clear a label already stored. `GET /bindings`
