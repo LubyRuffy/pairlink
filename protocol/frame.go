@@ -12,11 +12,15 @@ const (
 	TypeDisco          = 0x03
 	TypeObserved       = 0x04
 	TypePath           = 0x05
-	TypePunchPing      = 0x10
-	TypePunchPong      = 0x11
-	SessionIDSize      = 16
-	KeySize            = 32
-	maxPayload         = 64 << 10
+	// TypeLabel is a hub-visible name announcement, same class as TypePath:
+	// the hub stores it and does not forward it. It is not a handshake and
+	// not an application payload.
+	TypeLabel     = 0x06
+	TypePunchPing = 0x10
+	TypePunchPong = 0x11
+	SessionIDSize = 16
+	KeySize       = 32
+	maxPayload    = 64 << 10
 )
 
 // Path names the data plane the client last used. Hub never sets this on

@@ -21,3 +21,35 @@ func TestSanitizeLabel(t *testing.T) {
 		t.Fatalf("literal %q", got)
 	}
 }
+
+func TestLabelAnnouncementKeepsNameAndModelApart(t *testing.T) {
+	raw, err := MarshalLabel("  Android\tPixel  ", " \n ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, model, ok := ParseLabel(raw)
+	if !ok || name != "Android Pixel" || model != "" {
+		t.Fatalf("parsed name=%q model=%q ok=%v", name, model, ok)
+	}
+	if strings.Contains(string(raw), "Android Pixel ") {
+		t.Fatal("sanitizer left trailing space in the announcement")
+	}
+	name, model, ok = ParseLabel([]byte(`{"name":"unit","model":"m1"}`))
+	if !ok || name != "unit" || model != "m1" {
+		t.Fatalf("separate fields name=%q model=%q ok=%v", name, model, ok)
+	}
+	if _, _, ok = ParseLabel([]byte{1}); ok {
+		t.Fatal("path code parsed as a label")
+	}
+	if _, _, ok = ParseLabel([]byte("unit")); ok {
+		t.Fatal("bare string parsed as a label")
+	}
+	long, err := MarshalLabel(strings.Repeat("n", LabelMaxRunes+4), "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, model, ok = ParseLabel(long)
+	if !ok || name != strings.Repeat("n", LabelMaxRunes) || model != "m" {
+		t.Fatalf("clipped name=%q model=%q ok=%v", name, model, ok)
+	}
+}

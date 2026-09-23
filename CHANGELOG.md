@@ -11,6 +11,12 @@
 
 ## Added
 
+- `TypeLabel` (`0x06`) announces a host name or a device name and model on the
+  relay socket after it connects, and again when the labels change. The hub
+  stores the frame and does not forward it. An empty sanitized field does not
+  clear a stored label. A device must send `name` and `model` as separate
+  fields; a glued name leaves `model` empty. `store.SetDeviceLabels` updates
+  every binding for that device public key.
 - `store.NoteDeviceSeen` records the latest device-websocket attach or drop on
   every binding for that device public key, including revoked rows. A host
   key, an unknown key, a zero time, or an older time changes nothing. The hub
@@ -49,6 +55,7 @@
 
 ## Fixed
 
+- The hub clock is safe to swap while a socket goroutine is reading it.
 - Handover and process exit can close every relay WebSocket via `ClosePeers`.
   A device that upgrades while its host is not in this process is closed at
   once, so the client redials instead of sending into an empty peer table.

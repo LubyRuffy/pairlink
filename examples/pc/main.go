@@ -52,7 +52,7 @@ func main() {
 		log.Fatal(err)
 	}
 	conn, err := client.Dial(ctx, client.Config{
-		HubURL: *hub, Identity: id, Token: *token, HTTPClient: hc,
+		HubURL: *hub, Identity: id, Token: *token, HTTPClient: hc, Name: label,
 	})
 	if err != nil {
 		log.Fatal(err)

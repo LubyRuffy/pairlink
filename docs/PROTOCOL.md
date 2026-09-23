@@ -22,7 +22,7 @@ hub 只存它们的 SHA-256。日志和 `admin/snapshot` 里不得出现原文�
 ## 不变量
 
 - Hub 转发 `TypeData` / `TypeHandshake` / `TypeDisco` 时不解析 payload。
-- 主机名、设备名、型号只走登记和兑换的 JSON 字段。塞进 `TypeData` 的字节不会变成名字。
+- 主机名、设备名、型号走登记、兑换，以及套接字接上后的 `TypeLabel`。塞进 `TypeData`、`TypeHandshake`、`TypeDisco` 的字节不会变成名字。
 - 监听地址和 hub URL 来自 flag 或配置。协议里没有写死的部署域名。
 - 数据面先走中转。UDP 打洞成功才切直连。直连断了必须回到中转。不能回退的实现是半成品。
 - 管理页上的「直连 / 中转」来自端点的 `TypePath` 宣告，不是 hub 对业务包的猜测。
@@ -37,6 +37,22 @@ hub 只存它们的 SHA-256。日志和 `admin/snapshot` 里不得出现原文�
 - 结果为空表示「没填」。登记时不得用空串覆盖已经存下的主机名
 
 主机名放在登记的 `name`。设备名称放在兑换的 `name`，型号放在 `model`。两个都可以空，也都可以同时有。
+
+套接字接上之后还可以再宣告一次，不用重新扫码。帧类型是 `TypeLabel`（`0x06`），和 `TypePath` 一样：hub 只落库，不转发给对端，也不把它当成业务包。
+
+payload 是 JSON，名称和型号分开：
+
+```json
+{"name":"<label>","model":"<model>"}
+```
+
+- 主机套接字只更新自己的主机名。`model` 被忽略。
+- 设备套接字按这把设备公钥更新 `device_name` 和 `device_model`。同一台主机上的另一部设备不动。
+- 清洗后的空字符串不覆盖已经存过的标签。长度和清洗沿用 `SanitizeLabel`。
+- 把系统和型号粘进一个 `name`、`model` 为空时，型号列保持空。hub 不从名字里拆型号。
+- 端点在拨号前就知道标签。第一帧跟在套接字接上后面发，标签变了再发一次。不要等加密握手完成再让 hub 猜身份。
+
+不是 JSON 对象的 payload（包括 `TypePath` 那一个字节）直接丢掉。
 
 ## 配对 URI
 
@@ -75,6 +91,7 @@ pairlink:v1:<hub_url>:<pairing_code>:<host_spk>[?lan=<ip:port>,...]
 | Disco | `0x03` | 原样转发。里面是封好的候选地址 |
 | Observed | `0x04` | Hub 自己写的，把传输层看到的地址告诉端点 |
 | Path | `0x05` | 不转发。payload 必须是 1 字节 |
+| Label | `0x06` | 不转发。payload 是 `{"name","model"}`，只落库 |
 | PunchPing | `0x10` | 按绑定关系转发，用来保活和打洞 |
 | PunchPong | `0x11` | 同上 |
 
@@ -130,6 +147,8 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 
 设备连上时如果本进程里没有主机的套接字，hub 立刻关掉，让客户端重拨，而不是把帧丢进空表。
 
+端点写出的第一帧是 `TypeLabel`。握手帧里没有可读的主机名。
+
 安静超过 60 秒没读到数据帧，hub 断开。控制帧 ping 不算。端点要周期性写一帧（demo 里大约 15 秒）。
 
 ### 绑定和排障
@@ -155,7 +174,7 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 
 管理面不是对等数据面。它只读控制面里已经存下的标签，加上进程内存里的在线表和 `TypePath`。
 
-持久化接口是 `store.Store`。`Memory` 给测试。`OpenSQLite(path)` 把同一批记录放进 SQLite：主机、配对、绑定、trace。重启后名字还在。路径不入库，进程重启后要等端点再次宣告。`NoteDeviceSeen` 把设备套接字的接上和断开记到绑定的 `last_connected`；主机套接字和保活不写。零值表示没观察过。
+持久化接口是 `store.Store`。`Memory` 给测试。`OpenSQLite(path)` 把同一批记录放进 SQLite：主机、配对、绑定、trace。重启后名字还在。路径不入库，进程重启后要等端点再次宣告。`NoteDeviceSeen` 把设备套接字的接上和断开记到绑定的 `last_connected`；主机套接字和保活不写。零值表示没观察过。`SetDeviceLabels` 按设备公钥更新名称和型号，空字段不覆盖。
 
 管理口令是进程配置（`-admin-token` 或 `PAIRLINK_ADMIN_TOKEN`），只存哈希。没配置时下面的路由全部 404。
 
@@ -185,7 +204,7 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 2. PC `POST /hosts`，带上公钥和主机名，再 `GET /ws`。
 3. PC `POST /pairings`，把 URI 画成二维码。
 4. 手机解析 URI，`POST /pairings/redeem`，带上自己的公钥、名称、型号。
-5. 手机用 ticket 子协议连上 `/ws`，周期发送 `TypePath = 1`。
+5. 手机用 ticket 子协议连上 `/ws`，先发 `TypeLabel`，再周期发送 `TypePath = 1`。
 6. 若两端都是 Go 客户端且 UDP 打通，改为宣告 `2`。UDP 失败则继续 `1`。
 7. 管理页 `snapshot` 里能看到主机名、设备名、型号，以及 `relay` 或 `direct`。
 

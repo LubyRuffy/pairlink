@@ -205,6 +205,26 @@ func (m *Memory) NoteDeviceSeen(_ context.Context, devicePub []byte, at time.Tim
 	return nil
 }
 
+func (m *Memory) SetDeviceLabels(_ context.Context, devicePub []byte, name, model string) error {
+	if len(devicePub) != 32 || (name == "" && model == "") {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.bindings {
+		if !bytes.Equal(m.bindings[i].DevicePub, devicePub) {
+			continue
+		}
+		if name != "" {
+			m.bindings[i].DeviceName = name
+		}
+		if model != "" {
+			m.bindings[i].DeviceModel = model
+		}
+	}
+	return nil
+}
+
 func (m *Memory) CountBindings(_ context.Context, hostPub []byte) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

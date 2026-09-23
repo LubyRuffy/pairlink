@@ -44,8 +44,9 @@ type Binding struct {
 	Revoked    bool
 	Created    time.Time
 	SessionID  []byte
-	// DeviceName and DeviceModel are display labels from redeem (`name`, `model`).
-	// Empty means that field was not sent. Neither is a secret or a path.
+	// DeviceName and DeviceModel are display labels from redeem (`name`, `model`)
+	// or a later TypeLabel on that device's socket. Empty means that field was
+	// not sent. Neither is a secret, a path, or a fingerprint.
 	DeviceName  string
 	DeviceModel string
 	// LastConnected is the latest device-socket attach or drop. Zero means
@@ -83,6 +84,12 @@ type Store interface {
 	// public key, including revoked rows. A host key, an unknown key, a zero
 	// time, or an older time changes nothing.
 	NoteDeviceSeen(ctx context.Context, devicePub []byte, at time.Time) error
+	// SetDeviceLabels updates device_name and device_model on every binding
+	// for this device public key, including revoked rows. An empty name leaves
+	// device_name unchanged. An empty model leaves device_model unchanged.
+	// Created, last-connected, and any other device's row stay as they are.
+	// A host key, a short key, or an unknown key changes nothing.
+	SetDeviceLabels(ctx context.Context, devicePub []byte, name, model string) error
 	CountBindings(ctx context.Context, hostPub []byte) (int, error)
 
 	AppendTrace(ctx context.Context, ev TraceEvent) error

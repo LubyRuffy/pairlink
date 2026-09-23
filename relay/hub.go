@@ -56,9 +56,12 @@ type peerConn struct {
 }
 
 func (h *Hub) SetNow(now func() time.Time) {
-	if now != nil {
-		h.now = now
+	if h == nil || now == nil {
+		return
 	}
+	h.mu.Lock()
+	h.now = now
+	h.mu.Unlock()
 }
 
 func (h *Hub) wsIdle() time.Duration {
@@ -526,6 +529,13 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 		// the hub never treats an application payload as a path.
 		if fr.Type == protocol.TypePath {
 			h.observePath(r.Context(), pub, fr.Dst[:], fr.Payload)
+			continue
+		}
+		// Labels are endpoint metadata, same class as a path. The hub stores
+		// them and does not forward them, and it does not read them out of
+		// a handshake or an application payload.
+		if fr.Type == protocol.TypeLabel {
+			h.observeLabel(r.Context(), pub, device, fr.Payload)
 			continue
 		}
 		h.forward(r.Context(), pc, fr, data)

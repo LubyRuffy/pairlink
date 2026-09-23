@@ -5,7 +5,9 @@ direct UDP path when hole punching works — the Tailscale path model, not a VPN
 
 The hub never sees application plaintext. Peers are long-term X25519 public
 keys. A host sends `name` (usually the hostname) on register. A device sends
-`name` and `model` on redeem. Those labels are coordination metadata, not a
+`name` and `model` on redeem. After the relay socket connects, either side
+can announce the same labels again in a `TypeLabel` frame; the hub stores it
+and does not forward it. Those labels are coordination metadata, not a
 decrypted frame. Binding is a QR URI:
 
 ```
