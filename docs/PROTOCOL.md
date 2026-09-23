@@ -174,6 +174,8 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 
 管理面不是对等数据面。它只读控制面里已经存下的标签，加上进程内存里的在线表和 `TypePath`。
 
+`hosts[].online` 是这台主机的 WebSocket 还在不在本进程。没绑定、手机离线、路径没有新鲜宣告，都不改它。公钥还没登记时它是 false。`bindings[].online` 和 `LinkPath` 只描述手机那一头。嵌入方要看 PC，调用 `Hub.PeerOnline(hostPub)`，不要从绑定列表推断。
+
 持久化接口是 `store.Store`。`Memory` 给测试。`OpenSQLite(path)` 把同一批记录放进 SQLite：主机、配对、绑定、trace。重启后名字还在。路径不入库，进程重启后要等端点再次宣告。`NoteDeviceSeen` 把设备套接字的接上和断开记到绑定的 `last_connected`；主机套接字和保活不写。零值表示没观察过。`SetDeviceLabels` 按设备公钥更新名称和型号，空字段不覆盖。
 
 管理口令是进程配置（`-admin-token` 或 `PAIRLINK_ADMIN_TOKEN`），只存哈希。没配置时下面的路由全部 404。

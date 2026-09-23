@@ -35,7 +35,12 @@ database. It does not open a second SQLite file, copy frames, or mount
   `SetDeviceLabels` is the store method. Empty does not mean the fingerprint,
   and a name is not parsed into a model.
 - Live path is `Hub.LinkPath`: `relay`, `direct`, or empty. Empty is "no fresh
-  announcement". A UI may label that offline. Do not store the path.
+  announcement" for that phone pair. A UI may label the phone offline. Do not
+  store the path.
+- PC presence is `Hub.PeerOnline(hostPub)`, also `hosts[].online` on the admin
+  snapshot. A registered host with a live websocket is online when it has no
+  binding and when every phone is offline. An empty `LinkPath` is not "PC
+  offline". A host socket does not stamp `Binding.LastConnected`.
 - `Binding.LastConnected` moves forward when that device websocket is accepted
   or dropped. `NoteDeviceSeen` is the store method. A host socket does not
   stamp phone rows. Zero means never observed.

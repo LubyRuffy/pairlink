@@ -32,6 +32,54 @@ func TestAdminDisabled(t *testing.T) {
 	}
 }
 
+func TestAdminSnapshotHostOnlineWithoutPhone(t *testing.T) {
+	h := New(nil)
+	const admin = "admin-secret"
+	h.SetAdminToken(admin)
+	srv := httptest.NewServer(h.Handler())
+	t.Cleanup(srv.Close)
+	ctx := context.Background()
+
+	token, err := IssueHostToken(ctx, h.Store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap := readSnapshot(t, srv.URL, admin)
+	if len(snap.Hosts) != 1 || snap.Hosts[0].Online || snap.Hosts[0].Registered || len(snap.Bindings) != 0 {
+		t.Fatalf("token only %+v bindings %d", snap.Hosts, len(snap.Bindings))
+	}
+
+	hostID, err := crypto.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := postRegister(srv.URL, token, hostID, "solo-pc"); err != nil {
+		t.Fatal(err)
+	}
+	snap = readSnapshot(t, srv.URL, admin)
+	if len(snap.Hosts) != 1 || snap.Hosts[0].Online || !snap.Hosts[0].Registered || snap.Hosts[0].Name != "solo-pc" || len(snap.Bindings) != 0 {
+		t.Fatalf("registered, socket down %+v bindings %d", snap.Hosts, len(snap.Bindings))
+	}
+
+	conn := dialHost(t, srv.URL, token)
+	snap = waitSnapshot(t, srv.URL, admin, func(s snapshotBody) bool {
+		return len(s.Hosts) == 1 && s.Hosts[0].Online && len(s.Bindings) == 0
+	})
+	if !h.PeerOnline(hostID.Public()) || snap.Hosts[0].Name != "solo-pc" {
+		t.Fatalf("live pc %+v", snap.Hosts)
+	}
+
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitSnapshot(t, srv.URL, admin, func(s snapshotBody) bool {
+		return len(s.Hosts) == 1 && !s.Hosts[0].Online && s.Hosts[0].Registered && len(s.Bindings) == 0
+	})
+	if h.PeerOnline(hostID.Public()) {
+		t.Fatal("closed socket still online")
+	}
+}
+
 func TestAdminSnapshotShowsLabelsAndPath(t *testing.T) {
 	h := New(nil)
 	const admin = "admin-secret"

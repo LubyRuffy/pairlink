@@ -2,6 +2,9 @@
 
 ## Changed
 
+- Admin snapshot `hosts[].online` and `Hub.PeerOnline(hostPub)` are the PC
+  websocket. They stay true with zero bindings and with every phone offline.
+  A binding's `online` and `LinkPath` describe the phone only.
 - `Hub.PeerOnline` reports whether this process still has that public key's
   websocket. `LinkPath` stays empty without a fresh TypePath; callers that
   mean "the phone is connected" must read `PeerOnline` and not treat an empty

@@ -15,7 +15,7 @@ No cookies, no Gateway Key.
 | POST | `/bindings/{id}/revoke` | Bearer host token | revoke |
 | GET | `/trace/{id}` | Bearer host token | metadata timeline |
 | GET | `/pairlink/admin` | none (API calls need the admin token) | HTML management page. 404 when admin is disabled |
-| GET | `/admin/snapshot` | Bearer admin token | hosts (name, online) and bindings (name, model, path). No tokens, codes, or tickets |
+| GET | `/admin/snapshot` | Bearer admin token | hosts (`name`, `online`, `registered`) and bindings (name, model, device `online`, path). Host `online` is that host websocket and stays true with zero bindings. No tokens, codes, or tickets |
 | POST | `/admin/hosts` | Bearer admin token | issue a host token; raw token is only in this response |
 | POST | `/admin/bindings/{id}/revoke` | Bearer admin token | revoke any binding |
 | GET | `/admin/trace/{id}` | Bearer admin token | same metadata timeline as `/trace/{id}` |
