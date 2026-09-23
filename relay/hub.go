@@ -337,25 +337,27 @@ func (h *Hub) handleListBindings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type row struct {
-		ID          string `json:"id"`
-		DeviceFP    string `json:"device_fp"`
-		DeviceName  string `json:"device_name,omitempty"`
-		DeviceModel string `json:"device_model,omitempty"`
-		CreatedAt   string `json:"created_at"`
-		SessionID   string `json:"session_id"`
-		Online      bool   `json:"online"`
-		Path        string `json:"path"`
+		ID            string `json:"id"`
+		DeviceFP      string `json:"device_fp"`
+		DeviceName    string `json:"device_name,omitempty"`
+		DeviceModel   string `json:"device_model,omitempty"`
+		CreatedAt     string `json:"created_at"`
+		LastConnected string `json:"last_connected_at,omitempty"`
+		SessionID     string `json:"session_id"`
+		Online        bool   `json:"online"`
+		Path          string `json:"path"`
 	}
 	out := make([]row, 0, len(list))
 	for _, b := range list {
 		out = append(out, row{
 			ID: b.ID, DeviceFP: crypto.Fingerprint(b.DevicePub),
-			DeviceName:  b.DeviceName,
-			DeviceModel: b.DeviceModel,
-			CreatedAt:   b.Created.UTC().Format(time.RFC3339),
-			SessionID:   hex.EncodeToString(b.SessionID),
-			Online:      h.peerOnline(b.DevicePub),
-			Path:        h.LinkPath(host.Pub, b.DevicePub),
+			DeviceName:    b.DeviceName,
+			DeviceModel:   b.DeviceModel,
+			CreatedAt:     b.Created.UTC().Format(time.RFC3339),
+			LastConnected: lastConnectedAt(b.LastConnected),
+			SessionID:     hex.EncodeToString(b.SessionID),
+			Online:        h.peerOnline(b.DevicePub),
+			Path:          h.LinkPath(host.Pub, b.DevicePub),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"bindings": out})
@@ -436,6 +438,25 @@ var upgrader = websocket.Upgrader{
 // the secret in the URL (access logs).
 const ticketProtoPrefix = "pairlink.ticket."
 
+// noteDeviceSeen records a device websocket attach or drop. Host sockets are
+// not device rows. The write is bounded and does not follow the request
+// context: that context is already canceled when the socket drops.
+func (h *Hub) noteDeviceSeen(pub []byte) {
+	if h == nil || h.Store == nil || len(pub) != protocol.KeySize {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = h.Store.NoteDeviceSeen(ctx, pub, h.clock())
+}
+
+func lastConnectedAt(at time.Time) string {
+	if at.IsZero() {
+		return ""
+	}
+	return at.UTC().Format(time.RFC3339)
+}
+
 func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 	pub, hostPub, device, err := h.identifyWS(r)
 	if err != nil {
@@ -466,9 +487,15 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	h.conns[key] = pc
 	h.mu.Unlock()
+	if device {
+		h.noteDeviceSeen(pub)
+	}
 	_ = h.Store.AppendTrace(r.Context(), store.TraceEvent{Ref: crypto.Fingerprint(pub), Kind: "connect", PeerFP: crypto.Fingerprint(pub), Note: "ws"})
 	h.sendObserved(pc, r.RemoteAddr, "tcp")
 	defer func() {
+		if device {
+			h.noteDeviceSeen(pub)
+		}
 		h.mu.Lock()
 		if h.conns[key] == pc {
 			delete(h.conns, key)

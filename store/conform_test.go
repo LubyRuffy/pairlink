@@ -155,8 +155,56 @@ func runStoreConformance(t *testing.T, open func(t *testing.T) Store) {
 		t.Fatalf("active after revoke %d %v", len(left), err)
 	}
 	all, err := st.ListAllBindings(ctx)
-	if err != nil || len(all) != 1 || !all[0].Revoked {
+	if err != nil || len(all) != 1 || !all[0].Revoked || !all[0].LastConnected.IsZero() {
 		t.Fatalf("all %+v %v", all, err)
+	}
+	otherHost := bytes.Repeat([]byte{5}, 32)
+	other := bytes.Repeat([]byte{4}, 32)
+	if err := st.PutBinding(ctx, Binding{
+		ID: "bind-other", HostPub: otherHost, DevicePub: other, TicketHash: HashSecret("ticket-other"),
+		Created: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	seen := time.Date(2026, 9, 23, 1, 2, 3, 0, time.UTC)
+	if err := st.NoteDeviceSeen(ctx, devPub, seen); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.NoteDeviceSeen(ctx, hostPub, seen.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.NoteDeviceSeen(ctx, devPub, seen.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.NoteDeviceSeen(ctx, devPub, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	all, err = st.ListAllBindings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotSeen := map[string]time.Time{}
+	for _, row := range all {
+		gotSeen[row.ID] = row.LastConnected
+	}
+	if !gotSeen["bind-1"].Equal(seen) {
+		t.Fatalf("revoked device seen %s", gotSeen["bind-1"])
+	}
+	if !gotSeen["bind-other"].IsZero() {
+		t.Fatalf("other device was stamped %s", gotSeen["bind-other"])
+	}
+	later := seen.Add(time.Minute)
+	if err := st.NoteDeviceSeen(ctx, devPub, later); err != nil {
+		t.Fatal(err)
+	}
+	all, err = st.ListAllBindings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range all {
+		if row.ID == "bind-1" && !row.LastConnected.Equal(later) {
+			t.Fatalf("later seen %s", row.LastConnected)
+		}
 	}
 
 	for i := 0; i < MaxBindingsPerHost; i++ {

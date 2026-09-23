@@ -52,15 +52,16 @@ func (r pairingRow) pairing() Pairing {
 }
 
 type bindingRow struct {
-	ID          string `gorm:"primaryKey"`
-	HostPub     []byte
-	DevicePub   []byte
-	TicketHash  []byte
-	DeviceName  string
-	DeviceModel string
-	Revoked     bool
-	Created     time.Time
-	SessionID   []byte
+	ID            string `gorm:"primaryKey"`
+	HostPub       []byte
+	DevicePub     []byte
+	TicketHash    []byte
+	DeviceName    string
+	DeviceModel   string
+	Revoked       bool
+	Created       time.Time
+	LastConnected time.Time
+	SessionID     []byte
 }
 
 func (bindingRow) TableName() string { return "bindings" }
@@ -69,7 +70,7 @@ func (r bindingRow) binding() Binding {
 	return Binding{
 		ID: r.ID, HostPub: clone(r.HostPub), DevicePub: clone(r.DevicePub),
 		TicketHash: clone(r.TicketHash), DeviceName: r.DeviceName, DeviceModel: r.DeviceModel,
-		Revoked: r.Revoked, Created: r.Created, SessionID: clone(r.SessionID),
+		Revoked: r.Revoked, Created: r.Created, LastConnected: r.LastConnected, SessionID: clone(r.SessionID),
 	}
 }
 
@@ -276,7 +277,7 @@ func (s *SQLite) PutBinding(ctx context.Context, b Binding) error {
 		row := bindingRow{
 			ID: b.ID, HostPub: clone(b.HostPub), DevicePub: clone(b.DevicePub),
 			TicketHash: clone(b.TicketHash), DeviceName: b.DeviceName, DeviceModel: b.DeviceModel,
-			Revoked: b.Revoked, Created: b.Created, SessionID: clone(b.SessionID),
+			Revoked: b.Revoked, Created: b.Created, LastConnected: b.LastConnected, SessionID: clone(b.SessionID),
 		}
 		if row.Created.IsZero() {
 			row.Created = time.Now().UTC()
@@ -361,6 +362,32 @@ func (s *SQLite) RevokeBinding(ctx context.Context, id string) error {
 		}
 		row.Revoked = true
 		return tx.Save(&row).Error
+	})
+}
+
+func (s *SQLite) NoteDeviceSeen(ctx context.Context, devicePub []byte, at time.Time) error {
+	if len(devicePub) != 32 || at.IsZero() {
+		return nil
+	}
+	at = at.UTC()
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		rows, err := loadBindings(tx)
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if !bytes.Equal(row.DevicePub, devicePub) {
+				continue
+			}
+			if !row.LastConnected.IsZero() && !at.After(row.LastConnected) {
+				continue
+			}
+			row.LastConnected = at
+			if err := tx.Save(&row).Error; err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 

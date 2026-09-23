@@ -48,6 +48,9 @@ type Binding struct {
 	// Empty means that field was not sent. Neither is a secret or a path.
 	DeviceName  string
 	DeviceModel string
+	// LastConnected is the latest device-socket attach or drop. Zero means
+	// this process has never observed that phone's websocket. It is not Created.
+	LastConnected time.Time
 }
 
 type TraceEvent struct {
@@ -76,6 +79,10 @@ type Store interface {
 	ListBindings(ctx context.Context, hostPub []byte) ([]Binding, error)
 	ListAllBindings(ctx context.Context) ([]Binding, error)
 	RevokeBinding(ctx context.Context, id string) error
+	// NoteDeviceSeen advances LastConnected on every binding for this device
+	// public key, including revoked rows. A host key, an unknown key, a zero
+	// time, or an older time changes nothing.
+	NoteDeviceSeen(ctx context.Context, devicePub []byte, at time.Time) error
 	CountBindings(ctx context.Context, hostPub []byte) (int, error)
 
 	AppendTrace(ctx context.Context, ev TraceEvent) error

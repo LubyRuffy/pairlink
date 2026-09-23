@@ -134,7 +134,7 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 
 ### 绑定和排障
 
-- `GET /bindings`：主机 token。返回指纹、`device_name`、`device_model`、是否在线、当前 `path`。
+- `GET /bindings`：主机 token。返回指纹、`device_name`、`device_model`、是否在线、当前 `path`。有过设备套接字时还带 `last_connected_at`，没有则省略，不用创建时间填。
 - `POST /bindings/{id}/revoke`：主机 token，只能吊销自己的。
 - `GET /trace/{id}`：主机 token。`id` 是配对 id、会话 id 或指纹。事件只有元数据：种类、字节数、对端指纹。转发事件的 `path` 固定写 `relay`，因为那一跳确实经过 hub。它不是数据面结论。
 
@@ -155,7 +155,7 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 
 管理面不是对等数据面。它只读控制面里已经存下的标签，加上进程内存里的在线表和 `TypePath`。
 
-持久化接口是 `store.Store`。`Memory` 给测试。`OpenSQLite(path)` 把同一批记录放进 SQLite：主机、配对、绑定、trace。重启后名字还在。路径不入库，进程重启后要等端点再次宣告。
+持久化接口是 `store.Store`。`Memory` 给测试。`OpenSQLite(path)` 把同一批记录放进 SQLite：主机、配对、绑定、trace。重启后名字还在。路径不入库，进程重启后要等端点再次宣告。`NoteDeviceSeen` 把设备套接字的接上和断开记到绑定的 `last_connected`；主机套接字和保活不写。零值表示没观察过。
 
 管理口令是进程配置（`-admin-token` 或 `PAIRLINK_ADMIN_TOKEN`），只存哈希。没配置时下面的路由全部 404。
 

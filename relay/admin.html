@@ -32,7 +32,7 @@
 <h2>主机</h2>
 <table><thead><tr><th>名称</th><th>指纹</th><th>已登记公钥</th><th>在线</th></tr></thead><tbody id="hosts"></tbody></table>
 <h2>绑定</h2>
-<table><thead><tr><th>主机</th><th>设备名</th><th>型号</th><th>在线</th><th>数据面</th><th>会话</th><th></th></tr></thead><tbody id="binds"></tbody></table>
+<table><thead><tr><th>主机</th><th>设备名</th><th>型号</th><th>在线</th><th>数据面</th><th>最后连接</th><th>会话</th><th></th></tr></thead><tbody id="binds"></tbody></table>
 <script>
 const tokenEl = document.querySelector("#token");
 const msg = document.querySelector("#msg");
@@ -80,6 +80,7 @@ async function snapshot() {
       cell(b.device_model),
       cell(b.revoked ? "已吊销" : (b.online ? "在线" : "离线")),
       cell(b.revoked ? "" : pathText(b.path)),
+      cell(b.last_connected_at || "未记录"),
       cell(b.session_id)
     );
     const td = document.createElement("td");

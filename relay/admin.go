@@ -76,17 +76,18 @@ type adminHost struct {
 }
 
 type adminBinding struct {
-	ID          string `json:"id"`
-	HostFP      string `json:"host_fp"`
-	HostName    string `json:"host_name"`
-	DeviceFP    string `json:"device_fp"`
-	DeviceName  string `json:"device_name"`
-	DeviceModel string `json:"device_model"`
-	Online      bool   `json:"online"`
-	Path        string `json:"path"`
-	Revoked     bool   `json:"revoked"`
-	CreatedAt   string `json:"created_at"`
-	SessionID   string `json:"session_id"`
+	ID            string `json:"id"`
+	HostFP        string `json:"host_fp"`
+	HostName      string `json:"host_name"`
+	DeviceFP      string `json:"device_fp"`
+	DeviceName    string `json:"device_name"`
+	DeviceModel   string `json:"device_model"`
+	Online        bool   `json:"online"`
+	Path          string `json:"path"`
+	Revoked       bool   `json:"revoked"`
+	CreatedAt     string `json:"created_at"`
+	LastConnected string `json:"last_connected_at,omitempty"`
+	SessionID     string `json:"session_id"`
 }
 
 func (h *Hub) handleAdminPage(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +193,9 @@ func (h *Hub) adminSnapshot(ctx context.Context) (map[string]any, error) {
 			Online: h.peerOnline(b.DevicePub), Path: h.LinkPath(b.HostPub, b.DevicePub),
 			Revoked: b.Revoked, CreatedAt: b.Created.UTC().Format(time.RFC3339),
 			SessionID: hex.EncodeToString(b.SessionID),
+		}
+		if !b.LastConnected.IsZero() {
+			row.LastConnected = b.LastConnected.UTC().Format(time.RFC3339)
 		}
 		if len(b.HostPub) == protocol.KeySize {
 			row.HostFP = crypto.Fingerprint(b.HostPub)

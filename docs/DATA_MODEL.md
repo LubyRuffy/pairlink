@@ -34,7 +34,8 @@
 | `device_name` | 兑换时的 `name` |
 | `device_model` | 兑换时的 `model` |
 | `revoked` | 吊销 |
-| `created` | 创建时间 |
+| `created` | 创建时间，兑换时刻，不是最后连接 |
+| `last_connected` | 该设备公钥的 WebSocket 最近一次接上或断开。零值表示没观察过。主机公钥、更早的时间、零时间都不改它。保活不写 |
 | `session_id` | 与配对相同的会话 id |
 
 每个主机最多 32 条未吊销绑定。吊销的仍留在 `ListAllBindings` 里，主机自己的 `ListBindings` 不返回它们。
@@ -57,5 +58,7 @@
 
 - 在线与否：进程里的 WebSocket 表
 - `relay` / `direct`：`Hub.LinkPath`，45 秒过期
+
+`last_connected` 入库，所以重启后仍知道上次连接时刻。它不是在线状态，在线仍看套接字表。
 
 重启后名字还在，路径要等端点再宣告。

@@ -11,6 +11,13 @@
 
 ## Added
 
+- `store.NoteDeviceSeen` records the latest device-websocket attach or drop on
+  every binding for that device public key, including revoked rows. A host
+  key, an unknown key, a zero time, or an older time changes nothing. The hub
+  calls it when a device socket is accepted and again when that socket drops.
+  Keepalives do not. `last_connected_at` is on the admin snapshot and on
+  `GET /bindings` when set; empty means never observed and is not the
+  binding's created time.
 - SQLite `store.Store`, admin JSON (`/pairlink/v1/admin/snapshot` and friends),
   and `/pairlink/admin`. Snapshot shows host name, device name, device model,
   and the live `relay` or `direct` path. Raw tokens are not in that JSON.

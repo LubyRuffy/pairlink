@@ -34,3 +34,6 @@ database. It does not open a second SQLite file, copy frames, or mount
   `name` and `model`. Empty does not mean the fingerprint.
 - Live path is `Hub.LinkPath`: `relay`, `direct`, or empty. Empty is "no fresh
   announcement". A UI may label that offline. Do not store the path.
+- `Binding.LastConnected` moves forward when that device websocket is accepted
+  or dropped. `NoteDeviceSeen` is the store method. A host socket does not
+  stamp phone rows. Zero means never observed.

@@ -190,6 +190,21 @@ func (m *Memory) RevokeBinding(_ context.Context, id string) error {
 	return ErrNotFound
 }
 
+func (m *Memory) NoteDeviceSeen(_ context.Context, devicePub []byte, at time.Time) error {
+	if len(devicePub) != 32 || at.IsZero() {
+		return nil
+	}
+	at = at.UTC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, b := range m.bindings {
+		if bytes.Equal(b.DevicePub, devicePub) && (b.LastConnected.IsZero() || at.After(b.LastConnected)) {
+			m.bindings[i].LastConnected = at
+		}
+	}
+	return nil
+}
+
 func (m *Memory) CountBindings(_ context.Context, hostPub []byte) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
