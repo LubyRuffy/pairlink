@@ -179,9 +179,10 @@ func (h *Hub) handleInfo(w http.ResponseWriter, r *http.Request) {
 
 func (h *Hub) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Pub   string `json:"pub"`
-		Token string `json:"token"`
-		Name  string `json:"name"`
+		Pub     string `json:"pub"`
+		Token   string `json:"token"`
+		Name    string `json:"name"`
+		Version string `json:"version"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad json")
@@ -205,6 +206,9 @@ func (h *Hub) handleRegister(w http.ResponseWriter, r *http.Request) {
 	host.Pub = pub
 	if name := protocol.SanitizeLabel(req.Name); name != "" {
 		host.Name = name
+	}
+	if version := protocol.SanitizeLabel(req.Version); version != "" {
+		host.Version = version
 	}
 	if err := h.Store.PutHost(r.Context(), host); err != nil {
 		httpError(w, http.StatusInternalServerError, "store")
@@ -265,6 +269,7 @@ func (h *Hub) handleRedeem(w http.ResponseWriter, r *http.Request) {
 		DevicePub string `json:"device_pub"`
 		Name      string `json:"name"`
 		Model     string `json:"model"`
+		Version   string `json:"version"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad json")
@@ -304,14 +309,15 @@ func (h *Hub) handleRedeem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b := store.Binding{
-		ID:          bid,
-		HostPub:     p.HostPub,
-		DevicePub:   dev,
-		TicketHash:  store.HashSecret(ticket),
-		Created:     h.now(),
-		SessionID:   p.SessionID,
-		DeviceName:  protocol.SanitizeLabel(req.Name),
-		DeviceModel: protocol.SanitizeLabel(req.Model),
+		ID:            bid,
+		HostPub:       p.HostPub,
+		DevicePub:     dev,
+		TicketHash:    store.HashSecret(ticket),
+		Created:       h.now(),
+		SessionID:     p.SessionID,
+		DeviceName:    protocol.SanitizeLabel(req.Name),
+		DeviceModel:   protocol.SanitizeLabel(req.Model),
+		DeviceVersion: protocol.SanitizeLabel(req.Version),
 	}
 	if err := h.Store.PutBinding(r.Context(), b); err != nil {
 		httpError(w, http.StatusInternalServerError, "store")
@@ -344,6 +350,7 @@ func (h *Hub) handleListBindings(w http.ResponseWriter, r *http.Request) {
 		DeviceFP      string `json:"device_fp"`
 		DeviceName    string `json:"device_name,omitempty"`
 		DeviceModel   string `json:"device_model,omitempty"`
+		DeviceVersion string `json:"device_version,omitempty"`
 		CreatedAt     string `json:"created_at"`
 		LastConnected string `json:"last_connected_at,omitempty"`
 		SessionID     string `json:"session_id"`
@@ -356,6 +363,7 @@ func (h *Hub) handleListBindings(w http.ResponseWriter, r *http.Request) {
 			ID: b.ID, DeviceFP: crypto.Fingerprint(b.DevicePub),
 			DeviceName:    b.DeviceName,
 			DeviceModel:   b.DeviceModel,
+			DeviceVersion: b.DeviceVersion,
 			CreatedAt:     b.Created.UTC().Format(time.RFC3339),
 			LastConnected: lastConnectedAt(b.LastConnected),
 			SessionID:     hex.EncodeToString(b.SessionID),

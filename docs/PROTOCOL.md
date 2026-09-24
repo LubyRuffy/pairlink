@@ -22,7 +22,7 @@ hub 只存它们的 SHA-256。日志和 `admin/snapshot` 里不得出现原文�
 ## 不变量
 
 - Hub 转发 `TypeData` / `TypeHandshake` / `TypeDisco` 时不解析 payload。
-- 主机名、设备名、型号走登记、兑换，以及套接字接上后的 `TypeLabel`。塞进 `TypeData`、`TypeHandshake`、`TypeDisco` 的字节不会变成名字。
+- 主机名、设备名、型号、两端版本号走登记、兑换，以及套接字接上后的 `TypeLabel`。版本号由端点填，hub 不编一个。塞进 `TypeData`、`TypeHandshake`、`TypeDisco` 的字节不会变成名字或版本。
 - 监听地址和 hub URL 来自 flag 或配置。协议里没有写死的部署域名。
 - 数据面先走中转。UDP 打洞成功才切直连。直连断了必须回到中转。不能回退的实现是半成品。
 - 管理页上的「直连 / 中转」来自端点的 `TypePath` 宣告，不是 hub 对业务包的猜测。
@@ -40,14 +40,16 @@ hub 只存它们的 SHA-256。日志和 `admin/snapshot` 里不得出现原文�
 
 套接字接上之后还可以再宣告一次，不用重新扫码。帧类型是 `TypeLabel`（`0x06`），和 `TypePath` 一样：hub 只落库，不转发给对端，也不把它当成业务包。
 
-payload 是 JSON，名称和型号分开：
+payload 是 JSON，名称、型号、版本分开：
 
 ```json
-{"name":"<label>","model":"<model>"}
+{"name":"<label>","model":"<model>","version":"<version>"}
 ```
 
-- 主机套接字只更新自己的主机名。`model` 被忽略。
-- 设备套接字按这把设备公钥更新 `device_name` 和 `device_model`。同一台主机上的另一部设备不动。
+`version` 是端点自己的软件版本，PC 和手机各填各的。hub 只存清洗后的字符串。
+
+- 主机套接字只更新自己的主机名和 `version`。`model` 被忽略。
+- 设备套接字按这把设备公钥更新 `device_name`、`device_model` 和 `device_version`。同一台主机上的另一部设备不动。
 - 清洗后的空字符串不覆盖已经存过的标签。长度和清洗沿用 `SanitizeLabel`。
 - 把系统和型号粘进一个 `name`、`model` 为空时，型号列保持空。hub 不从名字里拆型号。
 - 端点在拨号前就知道标签。第一帧跟在套接字接上后面发，标签变了再发一次。不要等加密握手完成再让 hub 猜身份。
@@ -91,7 +93,7 @@ pairlink:v1:<hub_url>:<pairing_code>:<host_spk>[?lan=<ip:port>,...]
 | Disco | `0x03` | 原样转发。里面是封好的候选地址 |
 | Observed | `0x04` | Hub 自己写的，把传输层看到的地址告诉端点 |
 | Path | `0x05` | 不转发。payload 必须是 1 字节 |
-| Label | `0x06` | 不转发。payload 是 `{"name","model"}`，只落库 |
+| Label | `0x06` | 不转发。payload 是 `{"name","model","version"}`，只落库 |
 | PunchPing | `0x10` | 按绑定关系转发，用来保活和打洞 |
 | PunchPong | `0x11` | 同上 |
 
@@ -113,10 +115,10 @@ pairlink:v1:<hub_url>:<pairing_code>:<host_spk>[?lan=<ip:port>,...]
 `POST /hosts`
 
 ```json
-{"pub":"<base64url>","token":"<host token>","name":"<hostname>"}
+{"pub":"<base64url>","token":"<host token>","name":"<hostname>","version":"<pc version>"}
 ```
 
-Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑在一起。`name` 可省略。
+Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑在一起。`name` 和 `version` 可省略。空的 `version` 不覆盖已经存下的 PC 版本。
 
 ### 开配对码
 
@@ -131,8 +133,10 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 `POST /pairings/redeem`，无认证。
 
 ```json
-{"code":"<pairing code>","device_pub":"<base64url>","name":"<device name>","model":"<model>"}
+{"code":"<pairing code>","device_pub":"<base64url>","name":"<device name>","model":"<model>","version":"<app version>"}
 ```
+
+`version` 是手机软件版本，可省略。空串不覆盖已存的版本。
 
 成功返回 `ticket`、`host_pub`、`session_id`、`binding_id`。`ticket` 只出现这一次。码过期、用过、主机不在线、绑定超过 32 个，都要失败，并且失败响应里不要回显码。
 
@@ -153,7 +157,7 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 
 ### 绑定和排障
 
-- `GET /bindings`：主机 token。返回指纹、`device_name`、`device_model`、是否在线、当前 `path`。有过设备套接字时还带 `last_connected_at`，没有则省略，不用创建时间填。
+- `GET /bindings`：主机 token。返回指纹、`device_name`、`device_model`、`device_version`、是否在线、当前 `path`。有过设备套接字时还带 `last_connected_at`，没有则省略，不用创建时间填。
 - `POST /bindings/{id}/revoke`：主机 token，只能吊销自己的。
 - `GET /trace/{id}`：主机 token。`id` 是配对 id、会话 id 或指纹。事件只有元数据：种类、字节数、对端指纹。转发事件的 `path` 固定写 `relay`，因为那一跳确实经过 hub。它不是数据面结论。
 
@@ -183,7 +187,7 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 | 方法 | 路径 | 作用 |
 |---|---|---|
 | GET | `/pairlink/admin` | 网页。页面本身不含口令 |
-| GET | `/pairlink/v1/admin/snapshot` | 主机名、设备名、型号、在线、`path` |
+| GET | `/pairlink/v1/admin/snapshot` | 主机名、PC 版本、设备名、型号、手机版本、在线、`path` |
 | POST | `/pairlink/v1/admin/hosts` | 签发一把新的主机口令，响应里只出现一次 |
 | POST | `/pairlink/v1/admin/bindings/{id}/revoke` | 吊销任意绑定 |
 | GET | `/pairlink/v1/admin/trace/{id}` | 同主机 trace，改用管理口令 |

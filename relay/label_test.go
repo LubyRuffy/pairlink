@@ -128,10 +128,15 @@ func TestHostAndDeviceLabelsRoundTrip(t *testing.T) {
 }
 
 func postRegister(hub, token string, id *crypto.Identity, name string) error {
+	return postRegisterVersion(hub, token, id, name, "")
+}
+
+func postRegisterVersion(hub, token string, id *crypto.Identity, name, version string) error {
 	body, _ := json.Marshal(map[string]string{
-		"pub":   crypto.PublicBase64(id.Public()),
-		"token": token,
-		"name":  name,
+		"pub":     crypto.PublicBase64(id.Public()),
+		"token":   token,
+		"name":    name,
+		"version": version,
 	})
 	res, err := http.Post(hub+"/pairlink/v1/hosts", "application/json", bytes.NewReader(body))
 	if err != nil {

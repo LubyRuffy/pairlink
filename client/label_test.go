@@ -53,14 +53,14 @@ func TestClientSendsHostAndDeviceLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := RedeemOfferInfo(ctx, nil, offer, devID, "pocket unit", "mod-z"); err != nil {
+	if _, _, _, err := RedeemOfferInfo(ctx, nil, offer, devID, "pocket unit", "mod-z", "0.1.10"); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := ListBindings(ctx, srv.URL, token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].DeviceName != "pocket unit" || rows[0].DeviceModel != "mod-z" {
+	if len(rows) != 1 || rows[0].DeviceName != "pocket unit" || rows[0].DeviceModel != "mod-z" || rows[0].DeviceVersion != "0.1.10" {
 		t.Fatalf("bindings %+v", rows)
 	}
 	if rows[0].DeviceName == "127.0.0.1" {

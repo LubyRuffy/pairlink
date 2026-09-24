@@ -70,6 +70,7 @@ func (h *Hub) PeerOnline(pub []byte) bool { return h.peerOnline(pub) }
 type adminHost struct {
 	FP         string `json:"fp,omitempty"`
 	Name       string `json:"name"`
+	Version    string `json:"version"`
 	Online     bool   `json:"online"`
 	Registered bool   `json:"registered"`
 	CreatedAt  string `json:"created_at"`
@@ -82,6 +83,8 @@ type adminBinding struct {
 	DeviceFP      string `json:"device_fp"`
 	DeviceName    string `json:"device_name"`
 	DeviceModel   string `json:"device_model"`
+	DeviceVersion string `json:"device_version"`
+	HostVersion   string `json:"host_version"`
 	Online        bool   `json:"online"`
 	Path          string `json:"path"`
 	Revoked       bool   `json:"revoked"`
@@ -173,15 +176,18 @@ func (h *Hub) adminSnapshot(ctx context.Context) (map[string]any, error) {
 		return nil, err
 	}
 	names := map[string]string{}
+	versions := map[string]string{}
 	hostRows := make([]adminHost, 0, len(hosts))
 	for _, host := range hosts {
-		row := adminHost{Name: host.Name, CreatedAt: host.Created.UTC().Format(time.RFC3339)}
+		row := adminHost{Name: host.Name, Version: host.Version, CreatedAt: host.Created.UTC().Format(time.RFC3339)}
 		if len(host.Pub) == protocol.KeySize {
 			fp := crypto.Fingerprint(host.Pub)
 			row.FP = fp
 			row.Registered = true
 			row.Online = h.peerOnline(host.Pub)
-			names[hex.EncodeToString(host.Pub)] = host.Name
+			key := hex.EncodeToString(host.Pub)
+			names[key] = host.Name
+			versions[key] = host.Version
 		}
 		hostRows = append(hostRows, row)
 	}
@@ -189,7 +195,8 @@ func (h *Hub) adminSnapshot(ctx context.Context) (map[string]any, error) {
 	for _, b := range bindings {
 		row := adminBinding{
 			ID: b.ID, HostName: names[hex.EncodeToString(b.HostPub)],
-			DeviceName: b.DeviceName, DeviceModel: b.DeviceModel,
+			HostVersion: versions[hex.EncodeToString(b.HostPub)],
+			DeviceName:  b.DeviceName, DeviceModel: b.DeviceModel, DeviceVersion: b.DeviceVersion,
 			Online: h.peerOnline(b.DevicePub), Path: h.LinkPath(b.HostPub, b.DevicePub),
 			Revoked: b.Revoked, CreatedAt: b.Created.UTC().Format(time.RFC3339),
 			SessionID: hex.EncodeToString(b.SessionID),

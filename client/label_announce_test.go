@@ -47,7 +47,7 @@ func TestFirstSocketFrameIsLabel(t *testing.T) {
 	defer cancel()
 	c, err := Dial(ctx, Config{
 		HubURL: srv.URL, Identity: id, Token: "tok", DisableUDP: true,
-		Name: "  station\t7 ", Model: "m-1",
+		Name: "  station\t7 ", Model: "m-1", Version: " 1.2.3 ",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -61,8 +61,8 @@ func TestFirstSocketFrameIsLabel(t *testing.T) {
 		if fr.Type == protocol.TypeHandshake {
 			t.Fatal("handshake was sent before the label")
 		}
-		name, model, ok := protocol.ParseLabel(fr.Payload)
-		if !ok || name != "station 7" || model != "m-1" {
+		name, model, version, ok := protocol.ParseLabel(fr.Payload)
+		if !ok || name != "station 7" || model != "m-1" || version != "1.2.3" {
 			t.Fatalf("label name=%q model=%q ok=%v payload=%s", name, model, ok, fr.Payload)
 		}
 		if bytes.Contains(fr.Payload, []byte("station 7 m-1")) {
@@ -96,7 +96,7 @@ func TestDialAndSetLabelsReachHubWithoutHandshake(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = hostC.Close() })
 	waitStoreHost(t, st, token, "kept")
-	hostC.SetLabels("station-7", "ignored-on-host")
+	hostC.SetLabels("station-7", "ignored-on-host", "1.2.3")
 	waitStoreHost(t, st, token, "station-7")
 
 	uri, _, err := hostC.CreateOffer(ctx)
@@ -127,7 +127,7 @@ func TestDialAndSetLabelsReachHubWithoutHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := RedeemOfferInfo(ctx, nil, offer2, otherID, "other-unit", "other-model"); err != nil {
+	if _, _, _, err := RedeemOfferInfo(ctx, nil, offer2, otherID, "other-unit", "other-model", ""); err != nil {
 		t.Fatal(err)
 	}
 	devC, err := Dial(ctx, Config{
@@ -141,7 +141,7 @@ func TestDialAndSetLabelsReachHubWithoutHandshake(t *testing.T) {
 	waitStoreDevice(t, st, hostID.Public(), devID.Public(), "pocket", "m-1")
 	waitStoreDevice(t, st, hostID.Public(), otherID.Public(), "other-unit", "other-model")
 
-	devC.SetLabels("glued system model", "")
+	devC.SetLabels("glued system model", "", "0.1.10")
 	waitStoreDevice(t, st, hostID.Public(), devID.Public(), "glued system model", "m-1")
 	waitStoreDevice(t, st, hostID.Public(), otherID.Public(), "other-unit", "other-model")
 	if got := mustHost(t, st, token).Name; got != "station-7" {

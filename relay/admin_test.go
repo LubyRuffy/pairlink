@@ -114,7 +114,7 @@ func TestAdminSnapshotShowsLabelsAndPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := postRegister(srv.URL, token, hostID, "box-a"); err != nil {
+	if err := postRegisterVersion(srv.URL, token, hostID, "box-a", "0.9.1"); err != nil {
 		t.Fatal(err)
 	}
 	hostConn := dialHost(t, srv.URL, token)
@@ -130,11 +130,11 @@ func TestAdminSnapshotShowsLabelsAndPath(t *testing.T) {
 	snap := waitSnapshot(t, srv.URL, admin, func(s snapshotBody) bool {
 		return len(s.Bindings) == 1 && s.Bindings[0].Path == protocol.PathDirect && s.Bindings[0].Online
 	})
-	if len(snap.Hosts) != 1 || snap.Hosts[0].Name != "box-a" || !snap.Hosts[0].Online || !snap.Hosts[0].Registered {
+	if len(snap.Hosts) != 1 || snap.Hosts[0].Name != "box-a" || snap.Hosts[0].Version != "0.9.1" || !snap.Hosts[0].Online || !snap.Hosts[0].Registered {
 		t.Fatalf("hosts %+v", snap.Hosts)
 	}
 	b := snap.Bindings[0]
-	if b.DeviceName != "dev-a" || b.DeviceModel != "mod-a" || b.HostName != "box-a" || b.Path != protocol.PathDirect {
+	if b.DeviceName != "dev-a" || b.DeviceModel != "mod-a" || b.DeviceVersion != "0.4.1" || b.HostVersion != "0.9.1" || b.HostName != "box-a" || b.Path != protocol.PathDirect {
 		t.Fatalf("binding %+v", b)
 	}
 	raw := mustSnapshotRaw(t, srv.URL, admin)
@@ -201,18 +201,21 @@ func TestAdminSnapshotShowsLabelsAndPath(t *testing.T) {
 type snapshotBody struct {
 	Hosts []struct {
 		Name       string `json:"name"`
+		Version    string `json:"version"`
 		Online     bool   `json:"online"`
 		Registered bool   `json:"registered"`
 	} `json:"hosts"`
 	Bindings []struct {
-		ID          string `json:"id"`
-		HostName    string `json:"host_name"`
-		DeviceName  string `json:"device_name"`
-		DeviceModel string `json:"device_model"`
-		Online      bool   `json:"online"`
-		Path        string `json:"path"`
-		Revoked     bool   `json:"revoked"`
-		SessionID   string `json:"session_id"`
+		ID            string `json:"id"`
+		HostName      string `json:"host_name"`
+		DeviceName    string `json:"device_name"`
+		DeviceModel   string `json:"device_model"`
+		DeviceVersion string `json:"device_version"`
+		HostVersion   string `json:"host_version"`
+		Online        bool   `json:"online"`
+		Path          string `json:"path"`
+		Revoked       bool   `json:"revoked"`
+		SessionID     string `json:"session_id"`
 	} `json:"bindings"`
 }
 
@@ -317,7 +320,7 @@ func redeemMeta(t *testing.T, hub, code string, dev *crypto.Identity, name, mode
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{
 		"code": code, "device_pub": crypto.PublicBase64(dev.Public()),
-		"name": name, "model": model,
+		"name": name, "model": model, "version": "0.4.1",
 	})
 	res, err := http.Post(hub+"/pairlink/v1/pairings/redeem", "application/json", bytes.NewReader(body))
 	if err != nil {

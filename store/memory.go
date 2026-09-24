@@ -205,8 +205,8 @@ func (m *Memory) NoteDeviceSeen(_ context.Context, devicePub []byte, at time.Tim
 	return nil
 }
 
-func (m *Memory) SetDeviceLabels(_ context.Context, devicePub []byte, name, model string) error {
-	if len(devicePub) != 32 || (name == "" && model == "") {
+func (m *Memory) SetDeviceLabels(_ context.Context, devicePub []byte, name, model, version string) error {
+	if len(devicePub) != 32 || (name == "" && model == "" && version == "") {
 		return nil
 	}
 	m.mu.Lock()
@@ -220,6 +220,9 @@ func (m *Memory) SetDeviceLabels(_ context.Context, devicePub []byte, name, mode
 		}
 		if model != "" {
 			m.bindings[i].DeviceModel = model
+		}
+		if version != "" {
+			m.bindings[i].DeviceVersion = version
 		}
 	}
 	return nil

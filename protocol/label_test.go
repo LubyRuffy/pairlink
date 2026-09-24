@@ -23,33 +23,33 @@ func TestSanitizeLabel(t *testing.T) {
 }
 
 func TestLabelAnnouncementKeepsNameAndModelApart(t *testing.T) {
-	raw, err := MarshalLabel("  Android\tPixel  ", " \n ")
+	raw, err := MarshalLabel("  Android\tPixel  ", " \n ", " v1.2.3 ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	name, model, ok := ParseLabel(raw)
-	if !ok || name != "Android Pixel" || model != "" {
-		t.Fatalf("parsed name=%q model=%q ok=%v", name, model, ok)
+	name, model, version, ok := ParseLabel(raw)
+	if !ok || name != "Android Pixel" || model != "" || version != "v1.2.3" {
+		t.Fatalf("parsed name=%q model=%q version=%q ok=%v", name, model, version, ok)
 	}
 	if strings.Contains(string(raw), "Android Pixel ") {
 		t.Fatal("sanitizer left trailing space in the announcement")
 	}
-	name, model, ok = ParseLabel([]byte(`{"name":"unit","model":"m1"}`))
-	if !ok || name != "unit" || model != "m1" {
-		t.Fatalf("separate fields name=%q model=%q ok=%v", name, model, ok)
+	name, model, version, ok = ParseLabel([]byte(`{"name":"unit","model":"m1"}`))
+	if !ok || name != "unit" || model != "m1" || version != "" {
+		t.Fatalf("separate fields name=%q model=%q version=%q ok=%v", name, model, version, ok)
 	}
-	if _, _, ok = ParseLabel([]byte{1}); ok {
+	if _, _, _, ok = ParseLabel([]byte{1}); ok {
 		t.Fatal("path code parsed as a label")
 	}
-	if _, _, ok = ParseLabel([]byte("unit")); ok {
+	if _, _, _, ok = ParseLabel([]byte("unit")); ok {
 		t.Fatal("bare string parsed as a label")
 	}
-	long, err := MarshalLabel(strings.Repeat("n", LabelMaxRunes+4), "m")
+	long, err := MarshalLabel(strings.Repeat("n", LabelMaxRunes+4), "m", strings.Repeat("v", LabelMaxRunes+3))
 	if err != nil {
 		t.Fatal(err)
 	}
-	name, model, ok = ParseLabel(long)
-	if !ok || name != strings.Repeat("n", LabelMaxRunes) || model != "m" {
-		t.Fatalf("clipped name=%q model=%q ok=%v", name, model, ok)
+	name, model, version, ok = ParseLabel(long)
+	if !ok || name != strings.Repeat("n", LabelMaxRunes) || model != "m" || version != strings.Repeat("v", LabelMaxRunes) {
+		t.Fatalf("clipped name=%q model=%q version=%q ok=%v", name, model, version, ok)
 	}
 }

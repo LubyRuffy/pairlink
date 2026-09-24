@@ -42,28 +42,34 @@ func SanitizeLabel(raw string) string {
 // Label fields are announced separately. A name that happens to contain a
 // model string is still just a name; callers must not split it.
 type labelBody struct {
-	Name  string `json:"name"`
-	Model string `json:"model"`
+	Name    string `json:"name"`
+	Model   string `json:"model"`
+	Version string `json:"version"`
 }
 
-// MarshalLabel encodes a hub-visible label announcement. Name and model stay
-// in their own fields. Empty fields are included so a missing model is not
-// inferred from the name.
-func MarshalLabel(name, model string) ([]byte, error) {
-	return json.Marshal(labelBody{Name: SanitizeLabel(name), Model: SanitizeLabel(model)})
+// MarshalLabel encodes a hub-visible label announcement. Name, model, and
+// version stay in their own fields. Version is whatever the caller already
+// decided to show; this package does not invent one. Empty fields are
+// included so a missing model or version is not inferred from the name.
+func MarshalLabel(name, model, version string) ([]byte, error) {
+	return json.Marshal(labelBody{
+		Name:    SanitizeLabel(name),
+		Model:   SanitizeLabel(model),
+		Version: SanitizeLabel(version),
+	})
 }
 
 // ParseLabel reads a TypeLabel payload. The bool is false when the payload is
 // not a JSON object, including a TypePath code. Returned strings are already
 // sanitized; empty means that field was not provided.
-func ParseLabel(payload []byte) (name, model string, ok bool) {
+func ParseLabel(payload []byte) (name, model, version string, ok bool) {
 	payload = bytes.TrimSpace(payload)
 	if len(payload) == 0 || payload[0] != '{' {
-		return "", "", false
+		return "", "", "", false
 	}
 	var in labelBody
 	if err := json.Unmarshal(payload, &in); err != nil {
-		return "", "", false
+		return "", "", "", false
 	}
-	return SanitizeLabel(in.Name), SanitizeLabel(in.Model), true
+	return SanitizeLabel(in.Name), SanitizeLabel(in.Model), SanitizeLabel(in.Version), true
 }

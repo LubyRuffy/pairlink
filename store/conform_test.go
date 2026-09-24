@@ -180,19 +180,19 @@ func runStoreConformance(t *testing.T, open func(t *testing.T) Store) {
 	for _, row := range all {
 		beforeLabel[row.ID] = row
 	}
-	if err := st.SetDeviceLabels(ctx, devPub, "", ""); err != nil {
+	if err := st.SetDeviceLabels(ctx, devPub, "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetDeviceLabels(ctx, []byte{9}, "short", "short"); err != nil {
+	if err := st.SetDeviceLabels(ctx, []byte{9}, "short", "short", "short"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetDeviceLabels(ctx, hostPub, "host-key", "host-key"); err != nil {
+	if err := st.SetDeviceLabels(ctx, hostPub, "host-key", "host-key", "host-key"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetDeviceLabels(ctx, devPub, "renamed", ""); err != nil {
+	if err := st.SetDeviceLabels(ctx, devPub, "renamed", "", "9.9.9"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetDeviceLabels(ctx, devPub, "", "mod-next"); err != nil {
+	if err := st.SetDeviceLabels(ctx, devPub, "", "mod-next", ""); err != nil {
 		t.Fatal(err)
 	}
 	all, err = st.ListAllBindings(ctx)
@@ -203,13 +203,13 @@ func runStoreConformance(t *testing.T, open func(t *testing.T) Store) {
 	for _, row := range all {
 		gotLabel[row.ID] = row
 	}
-	if gotLabel["bind-1"].DeviceName != "renamed" || gotLabel["bind-1"].DeviceModel != "mod-next" {
+	if gotLabel["bind-1"].DeviceName != "renamed" || gotLabel["bind-1"].DeviceModel != "mod-next" || gotLabel["bind-1"].DeviceVersion != "9.9.9" {
 		t.Fatalf("revoked device labels %+v", gotLabel["bind-1"])
 	}
-	if gotLabel["bind-same"].DeviceName != "renamed" || gotLabel["bind-same"].DeviceModel != "mod-next" {
+	if gotLabel["bind-same"].DeviceName != "renamed" || gotLabel["bind-same"].DeviceModel != "mod-next" || gotLabel["bind-same"].DeviceVersion != "9.9.9" {
 		t.Fatalf("same device on another host %+v", gotLabel["bind-same"])
 	}
-	if gotLabel["bind-other"].DeviceName != "" || gotLabel["bind-other"].DeviceModel != "" {
+	if gotLabel["bind-other"].DeviceName != "" || gotLabel["bind-other"].DeviceModel != "" || gotLabel["bind-other"].DeviceVersion != "" {
 		t.Fatalf("other device changed %+v", gotLabel["bind-other"])
 	}
 	if !gotLabel["bind-1"].Created.Equal(beforeLabel["bind-1"].Created) || !gotLabel["bind-1"].LastConnected.IsZero() {

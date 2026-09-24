@@ -24,13 +24,14 @@ type hostRow struct {
 	Pub       []byte
 	TokenHash []byte `gorm:"index"`
 	Name      string
+	Version   string
 	Created   time.Time
 }
 
 func (hostRow) TableName() string { return "hosts" }
 
 func (r hostRow) host() Host {
-	return Host{Pub: clone(r.Pub), TokenHash: clone(r.TokenHash), Name: r.Name, Created: r.Created}
+	return Host{Pub: clone(r.Pub), TokenHash: clone(r.TokenHash), Name: r.Name, Version: r.Version, Created: r.Created}
 }
 
 type pairingRow struct {
@@ -58,6 +59,7 @@ type bindingRow struct {
 	TicketHash    []byte
 	DeviceName    string
 	DeviceModel   string
+	DeviceVersion string
 	Revoked       bool
 	Created       time.Time
 	LastConnected time.Time
@@ -69,7 +71,7 @@ func (bindingRow) TableName() string { return "bindings" }
 func (r bindingRow) binding() Binding {
 	return Binding{
 		ID: r.ID, HostPub: clone(r.HostPub), DevicePub: clone(r.DevicePub),
-		TicketHash: clone(r.TicketHash), DeviceName: r.DeviceName, DeviceModel: r.DeviceModel,
+		TicketHash: clone(r.TicketHash), DeviceName: r.DeviceName, DeviceModel: r.DeviceModel, DeviceVersion: r.DeviceVersion,
 		Revoked: r.Revoked, Created: r.Created, LastConnected: r.LastConnected, SessionID: clone(r.SessionID),
 	}
 }
@@ -152,11 +154,11 @@ func (s *SQLite) PutHost(ctx context.Context, h Host) error {
 			merged := mergeHost(rows[i].host(), h)
 			row := hostRow{
 				ID: rows[i].ID, Pub: clone(merged.Pub), TokenHash: clone(merged.TokenHash),
-				Name: merged.Name, Created: merged.Created,
+				Name: merged.Name, Version: merged.Version, Created: merged.Created,
 			}
 			return tx.Save(&row).Error
 		}
-		row := hostRow{Pub: clone(h.Pub), TokenHash: clone(h.TokenHash), Name: h.Name, Created: h.Created}
+		row := hostRow{Pub: clone(h.Pub), TokenHash: clone(h.TokenHash), Name: h.Name, Version: h.Version, Created: h.Created}
 		if row.Created.IsZero() {
 			row.Created = time.Now().UTC()
 		}
@@ -276,7 +278,7 @@ func (s *SQLite) PutBinding(ctx context.Context, b Binding) error {
 		}
 		row := bindingRow{
 			ID: b.ID, HostPub: clone(b.HostPub), DevicePub: clone(b.DevicePub),
-			TicketHash: clone(b.TicketHash), DeviceName: b.DeviceName, DeviceModel: b.DeviceModel,
+			TicketHash: clone(b.TicketHash), DeviceName: b.DeviceName, DeviceModel: b.DeviceModel, DeviceVersion: b.DeviceVersion,
 			Revoked: b.Revoked, Created: b.Created, LastConnected: b.LastConnected, SessionID: clone(b.SessionID),
 		}
 		if row.Created.IsZero() {
@@ -391,8 +393,8 @@ func (s *SQLite) NoteDeviceSeen(ctx context.Context, devicePub []byte, at time.T
 	})
 }
 
-func (s *SQLite) SetDeviceLabels(ctx context.Context, devicePub []byte, name, model string) error {
-	if len(devicePub) != 32 || (name == "" && model == "") {
+func (s *SQLite) SetDeviceLabels(ctx context.Context, devicePub []byte, name, model, version string) error {
+	if len(devicePub) != 32 || (name == "" && model == "" && version == "") {
 		return nil
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -409,6 +411,9 @@ func (s *SQLite) SetDeviceLabels(ctx context.Context, devicePub []byte, name, mo
 			}
 			if model != "" {
 				row.DeviceModel = model
+			}
+			if version != "" {
+				row.DeviceVersion = version
 			}
 			if err := tx.Save(&row).Error; err != nil {
 				return err

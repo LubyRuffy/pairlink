@@ -25,6 +25,9 @@ type Host struct {
 	// Name is the host's own label (hostname or the name it shows a phone).
 	// Empty means the endpoint has not announced one.
 	Name string
+	// Version is the PC build string the endpoint chose to publish.
+	// Empty means it has not announced one. The hub does not invent it.
+	Version string
 }
 
 type Pairing struct {
@@ -49,6 +52,9 @@ type Binding struct {
 	// not sent. Neither is a secret, a path, or a fingerprint.
 	DeviceName  string
 	DeviceModel string
+	// DeviceVersion is the phone software version from redeem or a later
+	// TypeLabel. Empty means that field was not sent.
+	DeviceVersion string
 	// LastConnected is the latest device-socket attach or drop. Zero means
 	// this process has never observed that phone's websocket. It is not Created.
 	LastConnected time.Time
@@ -84,12 +90,12 @@ type Store interface {
 	// public key, including revoked rows. A host key, an unknown key, a zero
 	// time, or an older time changes nothing.
 	NoteDeviceSeen(ctx context.Context, devicePub []byte, at time.Time) error
-	// SetDeviceLabels updates device_name and device_model on every binding
-	// for this device public key, including revoked rows. An empty name leaves
-	// device_name unchanged. An empty model leaves device_model unchanged.
-	// Created, last-connected, and any other device's row stay as they are.
-	// A host key, a short key, or an unknown key changes nothing.
-	SetDeviceLabels(ctx context.Context, devicePub []byte, name, model string) error
+	// SetDeviceLabels updates device_name, device_model, and device_version on
+	// every binding for this device public key, including revoked rows. An
+	// empty name, model, or version leaves that column unchanged. Created,
+	// last-connected, and any other device's row stay as they are. A host
+	// key, a short key, or an unknown key changes nothing.
+	SetDeviceLabels(ctx context.Context, devicePub []byte, name, model, version string) error
 	CountBindings(ctx context.Context, hostPub []byte) (int, error)
 
 	AppendTrace(ctx context.Context, ev TraceEvent) error
@@ -108,6 +114,9 @@ func mergeHost(prev, next Host) Host {
 	}
 	if next.Name == "" {
 		next.Name = prev.Name
+	}
+	if next.Version == "" {
+		next.Version = prev.Version
 	}
 	if next.Created.IsZero() {
 		next.Created = prev.Created

@@ -9,6 +9,7 @@
 | `pub` | 主机公钥，32 字节。登记前为空 |
 | `token_hash` | Host Token 的 SHA-256 |
 | `name` | 显示名，通常是主机名。登记或主机套接字的 `TypeLabel` 写入。可空 |
+| `version` | PC 软件版本。登记或主机套接字的 `TypeLabel` 写入。端点填写，可空。空串不覆盖 |
 | `created` | 创建时间 |
 
 空公钥不得把两条未登记主机并成一条。匹配时先看 token 哈希，再看 32 字节公钥。
@@ -33,6 +34,7 @@
 | `ticket_hash` | Device Ticket 的 SHA-256 |
 | `device_name` | 兑换时的 `name`，或该设备套接字后来的 `TypeLabel` |
 | `device_model` | 兑换时的 `model`，或该设备套接字后来的 `TypeLabel`。不会从 `device_name` 里拆出来 |
+| `device_version` | 兑换时的 `version`，或该设备套接字后来的 `TypeLabel`。手机软件版本，端点填写。空串不覆盖 |
 | `revoked` | 吊销 |
 | `created` | 创建时间，兑换时刻，不是最后连接 |
 | `last_connected` | 该设备公钥的 WebSocket 最近一次接上或断开。零值表示没观察过。主机公钥、更早的时间、零时间都不改它。保活不写 |
@@ -40,7 +42,7 @@
 
 每个主机最多 32 条未吊销绑定。吊销的仍留在 `ListAllBindings` 里，主机自己的 `ListBindings` 不返回它们。
 
-`SetDeviceLabels(devicePub, name, model)` 更新这把设备公钥的每一行，包括已吊销的。空的 `name` 或 `model` 不覆盖该列。不改 `created` 和 `last_connected`。主机公钥、短公钥、没有这行设备的公钥都不生效。同一台主机上的另一部设备不在这次更新里。
+`SetDeviceLabels(devicePub, name, model, version)` 更新这把设备公钥的每一行，包括已吊销的。空的 `name`、`model` 或 `version` 不覆盖该列。不改 `created` 和 `last_connected`。主机公钥、短公钥、没有这行设备的公钥都不生效。同一台主机上的另一部设备不在这次更新里。
 
 ## traces
 

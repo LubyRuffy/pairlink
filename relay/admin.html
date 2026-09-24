@@ -20,7 +20,7 @@
 </head>
 <body>
 <h1>pairlink 管理</h1>
-<p>这里只看控制面：主机名、设备名、型号、以及端点宣告的数据面。直连时业务包不经过这里。</p>
+<p>这里只看控制面：主机名、两端版本、设备名、型号、以及端点宣告的数据面。直连时业务包不经过这里。</p>
 <form id="auth">
   <input id="token" type="password" autocomplete="off" placeholder="管理口令">
   <button type="submit">保存</button>
@@ -30,9 +30,9 @@
 <p id="msg"></p>
 <pre id="once" class="secret" hidden></pre>
 <h2>主机</h2>
-<table><thead><tr><th>名称</th><th>指纹</th><th>已登记公钥</th><th>在线</th></tr></thead><tbody id="hosts"></tbody></table>
+<table><thead><tr><th>名称</th><th>PC 版本</th><th>指纹</th><th>已登记公钥</th><th>在线</th></tr></thead><tbody id="hosts"></tbody></table>
 <h2>绑定</h2>
-<table><thead><tr><th>主机</th><th>设备名</th><th>型号</th><th>在线</th><th>数据面</th><th>最后连接</th><th>会话</th><th></th></tr></thead><tbody id="binds"></tbody></table>
+<table><thead><tr><th>主机</th><th>PC 版本</th><th>设备名</th><th>型号</th><th>手机版本</th><th>在线</th><th>数据面</th><th>最后连接</th><th>会话</th><th></th></tr></thead><tbody id="binds"></tbody></table>
 <script>
 const tokenEl = document.querySelector("#token");
 const msg = document.querySelector("#msg");
@@ -67,7 +67,7 @@ async function snapshot() {
   hosts.replaceChildren();
   for (const h of body.hosts || []) {
     const tr = document.createElement("tr");
-    tr.append(cell(h.name), cell(h.fp), cell(h.registered ? "是" : "否"), cell(h.online ? "在线" : "离线"));
+    tr.append(cell(h.name), cell(h.version || "未上报"), cell(h.fp), cell(h.registered ? "是" : "否"), cell(h.online ? "在线" : "离线"));
     hosts.append(tr);
   }
   const binds = document.querySelector("#binds");
@@ -76,8 +76,10 @@ async function snapshot() {
     const tr = document.createElement("tr");
     tr.append(
       cell(b.host_name || b.host_fp),
+      cell(b.host_version || "未上报"),
       cell(b.device_name),
       cell(b.device_model),
+      cell(b.device_version || "未上报"),
       cell(b.revoked ? "已吊销" : (b.online ? "在线" : "离线")),
       cell(b.revoked ? "" : pathText(b.path)),
       cell(b.last_connected_at || "未记录"),

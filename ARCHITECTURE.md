@@ -29,11 +29,13 @@ database. It does not open a second SQLite file, copy frames, or mount
 `/pairlink/admin` (those routes stay dark until `SetAdminToken`).
 
 - `Host.Name` is the announced hostname (register, or a later `TypeLabel` on
-  the host socket). A product display name stays in the product table.
-- `Binding.DeviceName` and `Binding.DeviceModel` round-trip from redeem
-  `name` and `model`, and from a later `TypeLabel` on that device socket.
-  `SetDeviceLabels` is the store method. Empty does not mean the fingerprint,
-  and a name is not parsed into a model.
+  the host socket). `Host.Version` is the PC build string the endpoint sent
+  on the same paths. A product display name stays in the product table.
+- `Binding.DeviceName`, `Binding.DeviceModel`, and `Binding.DeviceVersion`
+  round-trip from redeem `name`, `model`, and `version`, and from a later
+  `TypeLabel` on that device socket. `SetDeviceLabels` is the store method.
+  Empty does not mean the fingerprint, and a name is not parsed into a model
+  or a version.
 - Live path is `Hub.LinkPath`: `relay`, `direct`, or empty. Empty is "no fresh
   announcement" for that phone pair. A UI may label the phone offline. Do not
   store the path.

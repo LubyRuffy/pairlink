@@ -14,6 +14,11 @@
 
 ## Added
 
+- Register, redeem, and `TypeLabel` carry a caller-supplied `version`. A host
+  socket stores the PC build string. A device socket stores the phone software
+  version on that device's bindings. An empty field does not clear a stored
+  version. The hub does not invent one. Admin snapshot and `GET /bindings`
+  show both ends.
 - `TypeLabel` (`0x06`) announces a host name or a device name and model on the
   relay socket after it connects, and again when the labels change. The hub
   stores the frame and does not forward it. An empty sanitized field does not
