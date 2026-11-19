@@ -11,17 +11,14 @@ import (
 const LabelMaxRunes = 80
 
 // SanitizeLabel collapses whitespace, drops control characters, and clips
-// to LabelMaxRunes. An empty result means "no label"; callers must not
-// overwrite a stored name with it.
+// to LabelMaxRunes. C1 controls, line separators, and bidi overrides are
+// breaks, same as ASCII controls. An empty result means "no label"; callers
+// must not overwrite a stored name with it.
 func SanitizeLabel(raw string) string {
 	var b strings.Builder
 	space := false
 	for _, r := range raw {
-		if r < 0x20 || r == 0x7f {
-			space = true
-			continue
-		}
-		if r == ' ' || r == '\u00a0' {
+		if labelBreak(r) {
 			space = true
 			continue
 		}
@@ -37,6 +34,20 @@ func SanitizeLabel(raw string) string {
 		out = strings.TrimSpace(string(runes[:LabelMaxRunes]))
 	}
 	return out
+}
+
+func labelBreak(r rune) bool {
+	if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+		return true
+	}
+	switch r {
+	case ' ', '\u00a0', '\u2028', '\u2029',
+		'\u202a', '\u202b', '\u202c', '\u202d', '\u202e',
+		'\u2066', '\u2067', '\u2068', '\u2069':
+		return true
+	default:
+		return false
+	}
 }
 
 // Label fields are announced separately. A name that happens to contain a

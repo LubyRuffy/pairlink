@@ -19,6 +19,7 @@
 <p>对着 PC 上的二维码。登录后这条连接走中转；浏览器没有 UDP，打不了洞。</p>
 <label>设备名称<input id="name" autocomplete="off"></label>
 <label>型号<input id="model" autocomplete="off"></label>
+<label>版本<input id="version" autocomplete="off"></label>
 <button type="button" id="fileBtn">拍照 / 选图</button>
 <input id="file" type="file" accept="image/*" capture="environment" hidden>
 <button type="button" id="liveBtn">打开摄像头</button>
@@ -37,8 +38,16 @@ function setStatus(s) { statusEl.textContent = s; }
 function labels() {
   return {
     name: document.querySelector("#name").value.trim(),
-    model: document.querySelector("#model").value.trim()
+    model: document.querySelector("#model").value.trim(),
+    version: document.querySelector("#version").value.trim()
   };
+}
+
+function sameBytes(a, b) {
+  if (!a || !b || a.length !== 32 || b.length !== 32) return false;
+  let d = 0;
+  for (let i = 0; i < 32; i++) d |= a[i] ^ b[i];
+  return d === 0;
 }
 
 function b64url(bytes) {
@@ -74,8 +83,9 @@ function parseOffer(raw) {
   if (spkAt <= 0 || codeAt <= 0) throw new Error("二维码不完整");
   const hub = rest.slice(0, codeAt);
   const code = rest.slice(codeAt + 1, spkAt);
-  if (!hub || !code) throw new Error("二维码不完整");
-  return { hub, code };
+  const spk = rest.slice(spkAt + 1);
+  if (!hub || !code || !spk) throw new Error("二维码不完整");
+  return { hub, code, spk };
 }
 
 function frame(type, dst, src, sid, payload) {
@@ -124,7 +134,7 @@ function announcePath(ws, dst, src, sid) {
 function announceLabels(ws, src, sid) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   const lab = labels();
-  const body = new TextEncoder().encode(JSON.stringify({ name: lab.name, model: lab.model }));
+  const body = new TextEncoder().encode(JSON.stringify({ name: lab.name, model: lab.model, version: lab.version }));
   ws.send(frame(6, new Uint8Array(32), src, sid, body));
 }
 
@@ -144,13 +154,15 @@ async function login(raw) {
       code: offer.code,
       device_pub: b64url(pub),
       name: lab.name,
-      model: lab.model
+      model: lab.model,
+      version: lab.version
     })
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || ("登录失败 " + res.status));
   document.querySelector("#paste").value = "";
   const hostPub = b64urlDecode(body.host_pub);
+  if (!sameBytes(hostPub, b64urlDecode(offer.spk))) throw new Error("主机公钥对不上");
   const sid = hexToBytes(body.session_id);
   if (socket) socket.close();
   const ws = new WebSocket(wsURL(offer.hub), ["pairlink.ticket." + body.ticket]);
@@ -184,7 +196,7 @@ async function decodeFile(file) {
   return body.text;
 }
 
-for (const id of ["#name", "#model"]) {
+for (const id of ["#name", "#model", "#version"]) {
   document.querySelector(id).addEventListener("change", () => {
     if (!socket || !session) return;
     announceLabels(socket, session.src, session.sid);

@@ -118,7 +118,7 @@ pairlink:v1:<hub_url>:<pairing_code>:<host_spk>[?lan=<ip:port>,...]
 {"pub":"<base64url>","token":"<host token>","name":"<hostname>","version":"<pc version>"}
 ```
 
-Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑在一起。`name` 和 `version` 可省略。空的 `version` 不覆盖已经存下的 PC 版本。
+Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑在一起。一把公钥只能属于一个 host token。另一个 token 再登记同一把公钥得到 409，原来的 token 和名字不变。`name` 和 `version` 可省略。空的 `version` 不覆盖已经存下的 PC 版本。
 
 ### 开配对码
 
@@ -138,7 +138,7 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 
 `version` 是手机软件版本，可省略。空串不覆盖已存的版本。
 
-成功返回 `ticket`、`host_pub`、`session_id`、`binding_id`。`ticket` 只出现这一次。码过期、用过、主机不在线、绑定超过 32 个，都要失败，并且失败响应里不要回显码。
+成功返回 `ticket`、`host_pub`、`session_id`、`binding_id`。`ticket` 只出现这一次。码过期或已经用过会失败。主机不在线、未吊销绑定已满 32 个、或者设备公钥就是这台主机的公钥时也失败，但这三种失败不消耗配对码。同一台主机对同一把设备公钥再次兑换会吊销旧绑定、断开那只设备套接字，并签发新票。失败响应不回显码。
 
 ### 中转套接字
 
@@ -149,7 +149,7 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 
 浏览器设不了 WebSocket 的 Authorization，所以走子协议。票不得放进 URL。
 
-设备连上时如果本进程里没有主机的套接字，hub 立刻关掉，让客户端重拨，而不是把帧丢进空表。
+设备票不能占用主机套接字。主机在线看主机那条 WebSocket，每条绑定有自己的设备套接字。设备连上时如果本进程里没有主机的套接字，hub 立刻关掉，让客户端重拨，而不是把帧丢进空表。吊销或同一对端再次兑换会关掉被替换的那只设备套接字。
 
 端点写出的第一帧是 `TypeLabel`。握手帧里没有可读的主机名。
 
@@ -158,8 +158,8 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 ### 绑定和排障
 
 - `GET /bindings`：主机 token。返回指纹、`device_name`、`device_model`、`device_version`、是否在线、当前 `path`。有过设备套接字时还带 `last_connected_at`，没有则省略，不用创建时间填。
-- `POST /bindings/{id}/revoke`：主机 token，只能吊销自己的。
-- `GET /trace/{id}`：主机 token。`id` 是配对 id、会话 id 或指纹。事件只有元数据：种类、字节数、对端指纹。转发事件的 `path` 固定写 `relay`，因为那一跳确实经过 hub。它不是数据面结论。
+- `POST /bindings/{id}/revoke`：主机 token，只能吊销自己的。成功后关掉这只绑定的设备套接字。
+- `GET /trace/{id}`：主机 token。`id` 只能是这把主机自己的指纹、配对 id、会话 id 或绑定 id。别人的记录是 404。事件只有元数据：种类、字节数、对端指纹。转发事件的 `path` 固定写 `relay`，因为那一跳确实经过 hub。它不是数据面结论。管理口令的 trace 不按主机裁剪。
 
 `GET /info` 无认证，返回这次请求的 Host 加上 UDP 端口，给 STUN 用。没有写死地址。
 
@@ -168,7 +168,7 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 1. 两端先在 hub 的 WebSocket 上完成握手。握手字节对 hub 不透明。
 2. 应用数据先从中转走。
 3. 端点把本机和 STUN 观察到的 UDP 地址封进 `TypeDisco`。hub 另外用 `TypeObserved` 告诉端点「我在传输层看见你从哪来」。hub 不能伪造封好的 disco。
-4. 两端互发 `PunchPing` / `PunchPong`。通了就把应用数据改走 UDP，并宣告 `TypePath = direct`。
+4. 两端互发 `PunchPing` / `PunchPong`。客户端只接受来源地址属于对端已密封 disco 端点的 UDP 打洞包，通了才把应用数据改走 UDP，并宣告 `TypePath = direct`。WebSocket 上的打洞包不切换路径。握手只在中转路径上接受；这条会话已经建立时，多余的握手帧不会换掉它。`TypeObserved` 只接受中转路径上、源公钥全零的帧。密封序号从 1 开始，重放或更旧的序号会被拒绝。
 5. UDP 断了，立刻改回 WebSocket，并宣告 `TypePath = relay`。
 6. 路径变化时立刻宣告。没变化也要在保活时再宣告一次。hub 只保留 45 秒。过期后 `LinkPath` 是空串，调用方应显示离线或「无宣告」，不要猜成直连。
 
@@ -178,7 +178,7 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 
 管理面不是对等数据面。它只读控制面里已经存下的标签，加上进程内存里的在线表和 `TypePath`。
 
-`hosts[].online` 是这台主机的 WebSocket 还在不在本进程。没绑定、手机离线、路径没有新鲜宣告，都不改它。公钥还没登记时它是 false。`bindings[].online` 和 `LinkPath` 只描述手机那一头。嵌入方要看 PC，调用 `Hub.PeerOnline(hostPub)`，不要从绑定列表推断。
+`hosts[].online` 是这台主机自己的 WebSocket，设备票不能占这个位置。没绑定、手机离线、路径没有新鲜宣告，都不改它。公钥还没登记时它是 false。`bindings[].online` 是这一条绑定的设备套接字。`Hub.PeerOnline(pub)` 在本进程有这把公钥的主机套接字或设备套接字时为真。嵌入方要看 PC，用主机公钥调用它，不要从绑定列表推断。
 
 持久化接口是 `store.Store`。`Memory` 给测试。`OpenSQLite(path)` 把同一批记录放进 SQLite：主机、配对、绑定、trace。重启后名字还在。路径不入库，进程重启后要等端点再次宣告。`NoteDeviceSeen` 把设备套接字的接上和断开记到绑定的 `last_connected`；主机套接字和保活不写。零值表示没观察过。`SetDeviceLabels` 按设备公钥更新名称和型号，空字段不覆盖。
 

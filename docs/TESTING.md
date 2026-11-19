@@ -16,7 +16,14 @@ Required cases:
   A TypeData byte that matches the direct code does not create a path;
   an overlong or unbound announcement is ignored; a 45s-old observation expires.
 - Trace for a session id contains bind/forward and not the payload.
-- Expired pairing redeem fails.
+- Expired pairing redeem fails. An offline host, a full binding table, or a
+  device key equal to the host key does not consume the code. Re-pairing the
+  same device retires the old ticket and drops its socket.
+- Another host token cannot register a taken public key, and cannot read that
+  host's trace. WebSocket pings do not hold the idle deadline.
+- A sealed session rejects a replayed or older nonce. A forged punch from
+  outside the sealed disco set does not move the data path. A second handshake
+  does not replace a live link.
 - Device ticket as WebSocket subprotocol opens the relay (browser clients).
 - Capacitor WebView OPTIONS preflight on redeem returns 204 with CORS.
 - Host keepalive frames hold a quiet WebSocket past the hub idle deadline;

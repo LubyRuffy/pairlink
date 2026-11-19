@@ -20,6 +20,9 @@ func TestSanitizeLabel(t *testing.T) {
 	if got := SanitizeLabel("hub.example"); got != "hub.example" {
 		t.Fatalf("literal %q", got)
 	}
+	if got := SanitizeLabel("a\u0080b\u2028c\u202ed"); got != "a b c d" {
+		t.Fatalf("controls %q", got)
+	}
 }
 
 func TestLabelAnnouncementKeepsNameAndModelApart(t *testing.T) {

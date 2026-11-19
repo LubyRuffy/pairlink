@@ -2,9 +2,27 @@
 
 ## Changed
 
-- Admin snapshot `hosts[].online` and `Hub.PeerOnline(hostPub)` are the PC
-  websocket. They stay true with zero bindings and with every phone offline.
-  A binding's `online` and `LinkPath` describe the phone only.
+- A device ticket cannot occupy the host socket. Each binding has its own
+  device socket. Redeem checks the host socket before it consumes a code, and
+  it does not consume the code when the host is offline, the 32-binding cap is
+  full, or the device key is the host key. Re-pairing the same host and device
+  retires the old binding and drops that socket. Revoke does the same.
+- One host public key belongs to one token. A second token cannot register it.
+  `BindingByPeers` returns the newest live row. `LookupPairing` does not
+  consume a code, and `RestorePairing` undoes a consume after a failed redeem.
+- `GET /trace/{id}` with a host token only returns that host's own records.
+  Admin trace stays unscoped. WebSocket control pings do not extend the idle
+  deadline. Forwarded TypeData is not retained unless a test calls `EnableSniff`.
+- The client accepts a handshake only on the relay, and ignores a repeat once
+  the link exists. A punch packet switches to direct only when its UDP source
+  is in the sealed disco set. `TypeObserved` is accepted only from the hub on
+  the relay. Session nonces start at 1 and reject replay or an older nonce.
+  Redeem compares the response host key with the offer. The phone page pins
+  the QR host key and sends its version.
+- Admin snapshot `hosts[].online` is the host websocket. It stays true with
+  zero bindings and with every phone offline. `bindings[].online` is that
+  binding's device socket. `Hub.PeerOnline(pub)` is true when this process
+  has a host socket or a device socket for that public key.
 - `Hub.PeerOnline` reports whether this process still has that public key's
   websocket. `LinkPath` stays empty without a fresh TypePath; callers that
   mean "the phone is connected" must read `PeerOnline` and not treat an empty
@@ -14,6 +32,8 @@
 
 ## Added
 
+- `examples/direct` starts a loopback hub and two UDP endpoints in one
+  process, then holds the admin page on `direct` (直连) until interrupted.
 - Register, redeem, and `TypeLabel` carry a caller-supplied `version`. A host
   socket stores the PC build string. A device socket stores the phone software
   version on that device's bindings. An empty field does not clear a stored

@@ -150,7 +150,9 @@ func (s *SQLite) PutHost(ctx context.Context, h Host) error {
 		for i := range rows {
 			hosts[i] = rows[i].host()
 		}
-		if i := hostIndex(hosts, h); i >= 0 {
+		if i, err := locateHost(hosts, h); err != nil {
+			return err
+		} else if i >= 0 {
 			merged := mergeHost(rows[i].host(), h)
 			row := hostRow{
 				ID: rows[i].ID, Pub: clone(merged.Pub), TokenHash: clone(merged.TokenHash),
@@ -218,6 +220,14 @@ func (s *SQLite) PutPairing(ctx context.Context, p Pairing) error {
 	return s.db.WithContext(ctx).Create(&row).Error
 }
 
+func (s *SQLite) LookupPairing(ctx context.Context, codeHash []byte) (Pairing, error) {
+	rows, err := loadPairings(s.db.WithContext(ctx))
+	if err != nil {
+		return Pairing{}, err
+	}
+	return inspectPairing(pairingModels(rows), codeHash, time.Now())
+}
+
 func (s *SQLite) ConsumePairing(ctx context.Context, codeHash []byte) (Pairing, error) {
 	var out Pairing
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -249,6 +259,40 @@ func (s *SQLite) ConsumePairing(ctx context.Context, codeHash []byte) (Pairing, 
 	return out, err
 }
 
+func (s *SQLite) RestorePairing(ctx context.Context, codeHash []byte) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		rows, err := loadPairings(tx)
+		if err != nil {
+			return err
+		}
+		for i := range rows {
+			if !bytes.Equal(rows[i].CodeHash, codeHash) {
+				continue
+			}
+			if !rows[i].Consumed {
+				return ErrNotFound
+			}
+			rows[i].Consumed = false
+			return tx.Save(&rows[i]).Error
+		}
+		return ErrNotFound
+	})
+}
+
+func loadPairings(tx *gorm.DB) ([]pairingRow, error) {
+	var rows []pairingRow
+	err := tx.Find(&rows).Error
+	return rows, err
+}
+
+func pairingModels(rows []pairingRow) []Pairing {
+	out := make([]Pairing, len(rows))
+	for i := range rows {
+		out[i] = rows[i].pairing()
+	}
+	return out
+}
+
 func (s *SQLite) PairingByID(ctx context.Context, id string) (Pairing, error) {
 	var row pairingRow
 	err := s.db.WithContext(ctx).First(&row, "id = ?", id).Error
@@ -268,13 +312,24 @@ func (s *SQLite) PutBinding(ctx context.Context, b Binding) error {
 			return err
 		}
 		n := 0
+		var retire []string
 		for _, row := range rows {
-			if bytes.Equal(row.HostPub, b.HostPub) && !row.Revoked {
-				n++
+			if !bytes.Equal(row.HostPub, b.HostPub) || row.Revoked {
+				continue
 			}
+			if bytes.Equal(row.DevicePub, b.DevicePub) {
+				retire = append(retire, row.ID)
+				continue
+			}
+			n++
 		}
 		if n >= MaxBindingsPerHost {
 			return ErrLimit
+		}
+		for _, id := range retire {
+			if err := tx.Model(&bindingRow{}).Where("id = ?", id).Update("revoked", true).Error; err != nil {
+				return err
+			}
 		}
 		row := bindingRow{
 			ID: b.ID, HostPub: clone(b.HostPub), DevicePub: clone(b.DevicePub),
@@ -309,15 +364,11 @@ func (s *SQLite) BindingByPeers(ctx context.Context, hostPub, devicePub []byte) 
 	if err != nil {
 		return Binding{}, err
 	}
-	for _, row := range rows {
-		if bytes.Equal(row.HostPub, hostPub) && bytes.Equal(row.DevicePub, devicePub) {
-			if row.Revoked {
-				return Binding{}, ErrRevoked
-			}
-			return row.binding(), nil
-		}
+	list := make([]Binding, len(rows))
+	for i := range rows {
+		list[i] = rows[i].binding()
 	}
-	return Binding{}, ErrNotFound
+	return selectBinding(list, hostPub, devicePub)
 }
 
 func (s *SQLite) ListBindings(ctx context.Context, hostPub []byte) ([]Binding, error) {

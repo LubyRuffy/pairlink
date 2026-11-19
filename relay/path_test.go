@@ -44,6 +44,7 @@ func waitLinkPath(t *testing.T, h *Hub, a, b []byte, want string) {
 
 func TestPathAnnouncementIsNotApplicationData(t *testing.T) {
 	h := New(nil)
+	h.EnableSniff()
 	srv := httptest.NewServer(h.Handler())
 	t.Cleanup(srv.Close)
 	_, ticket, hostConn := issueBoundTicket(t, h, srv)

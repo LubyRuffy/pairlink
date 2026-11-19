@@ -32,7 +32,9 @@ name and model, and whether the live path is `relay` or `direct`.
 
 `examples/echo` is the two-Go-client path. On loopback it upgrades to
 `direct` and falls back to `relay` if UDP dies. The phone page has no UDP, so
-it stays on `relay`.
+it stays on `relay`. `go run ./examples/direct` is the one-process version:
+it starts the hub, punches on loopback, and leaves the admin page on 直连
+until you stop it.
 
 Protocol: [docs/PROTOCOL.md](docs/PROTOCOL.md). Config: [docs/CONFIG.md](docs/CONFIG.md).
 Commands: [docs/CLI.md](docs/CLI.md).

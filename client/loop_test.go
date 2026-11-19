@@ -21,6 +21,7 @@ func startHub(t *testing.T) (*relay.Hub, string, context.CancelFunc) {
 	t.Helper()
 	st := store.NewMemory()
 	h := relay.New(st)
+	h.EnableSniff()
 	srv := httptest.NewServer(h.Handler())
 	t.Cleanup(srv.Close)
 	ctx, cancel := context.WithCancel(context.Background())

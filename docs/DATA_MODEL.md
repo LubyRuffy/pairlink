@@ -12,7 +12,7 @@
 | `version` | PC 软件版本。登记或主机套接字的 `TypeLabel` 写入。端点填写，可空。空串不覆盖 |
 | `created` | 创建时间 |
 
-空公钥不得把两条未登记主机并成一条。匹配时先看 token 哈希，再看 32 字节公钥。
+空公钥不得把两条未登记主机并成一条。匹配时先看 token 哈希，再看 32 字节公钥。新的非空 token 不能占用已经属于另一个 token 的公钥，这种情况是 `ErrConflict`。空 token 仍按公钥合并，并保留原来的 token。
 
 ## pairings
 
@@ -40,7 +40,7 @@
 | `last_connected` | 该设备公钥的 WebSocket 最近一次接上或断开。零值表示没观察过。主机公钥、更早的时间、零时间都不改它。保活不写 |
 | `session_id` | 与配对相同的会话 id |
 
-每个主机最多 32 条未吊销绑定。吊销的仍留在 `ListAllBindings` 里，主机自己的 `ListBindings` 不返回它们。
+每个主机最多 32 条未吊销绑定。同一对主机和设备再次写入会先吊销旧行，旧行不计入这 32 条。`BindingByPeers` 返回这对端最新的未吊销行；只有吊销历史时返回 `ErrRevoked`，没有记录时返回 `ErrNotFound`。吊销的仍留在 `ListAllBindings` 里，主机自己的 `ListBindings` 不返回它们。`LookupPairing` 不消耗配对码。兑换在后续步骤失败时用 `RestorePairing` 把已消耗的码还回去。
 
 `SetDeviceLabels(devicePub, name, model, version)` 更新这把设备公钥的每一行，包括已吊销的。空的 `name`、`model` 或 `version` 不覆盖该列。不改 `created` 和 `last_connected`。主机公钥、短公钥、没有这行设备的公钥都不生效。同一台主机上的另一部设备不在这次更新里。
 

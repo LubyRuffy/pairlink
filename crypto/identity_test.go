@@ -80,3 +80,65 @@ func TestFingerprintIsNotTheRawKey(t *testing.T) {
 		t.Fatalf("fingerprint len %d", len(fp))
 	}
 }
+
+func TestSessionRejectsReplayAndReorder(t *testing.T) {
+	a, err := Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hs, msg1, err := Initiate(a, b.Public())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessB, msg2, err := Respond(b, a.Public(), msg1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessA, err := hs.Finish(msg2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := sessA.Seal([]byte("one"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := sessA.Seal([]byte("two"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessB.Open(second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessB.Open(first); err == nil {
+		t.Fatal("older nonce opened")
+	}
+	if _, err := sessB.Open(second); err == nil {
+		t.Fatal("replay opened")
+	}
+	hs2, msg3, err := Initiate(a, b.Public())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recv, msg4, err := Respond(b, a.Public(), msg3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	send, err := hs2.Finish(msg4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, plain := range []string{"one", "two"} {
+		ct, err := send.Seal([]byte(plain))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := recv.Open(ct)
+		if err != nil || string(got) != plain {
+			t.Fatalf("in order %q %v", got, err)
+		}
+	}
+}

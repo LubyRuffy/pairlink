@@ -8,8 +8,14 @@ import (
 func TestPageAnnouncesSeparateLabels(t *testing.T) {
 	src := string(page)
 	body := src[strings.Index(src, "function announceLabels"):]
-	if !strings.Contains(body, "JSON.stringify({ name: lab.name, model: lab.model })") {
-		t.Fatal("phone page must announce name and model as separate fields")
+	if !strings.Contains(body, "JSON.stringify({ name: lab.name, model: lab.model, version: lab.version })") {
+		t.Fatal("phone page must announce name, model, and version as separate fields")
+	}
+	if !strings.Contains(src, "sameBytes(hostPub, b64urlDecode(offer.spk))") {
+		t.Fatal("phone page must pin the QR host public key")
+	}
+	if !strings.Contains(src, "version: lab.version") {
+		t.Fatal("redeem must send the phone version")
 	}
 	if strings.Contains(src[strings.Index(src, "function announceLabels"):strings.Index(src, "async function login")], "lab.name +") {
 		t.Fatal("label frame must not glue the name and the model together")

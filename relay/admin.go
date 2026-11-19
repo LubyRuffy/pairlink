@@ -59,6 +59,9 @@ func (h *Hub) peerOnline(pub []byte) bool {
 	if len(pub) != protocol.KeySize {
 		return false
 	}
+	if h.hostConnected(pub) {
+		return true
+	}
 	_, ok := h.lookup(pub)
 	return ok
 }
@@ -146,6 +149,7 @@ func (h *Hub) handleAdminRevoke(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusInternalServerError, "store")
 		return
 	}
+	h.dropBinding(id)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -184,7 +188,7 @@ func (h *Hub) adminSnapshot(ctx context.Context) (map[string]any, error) {
 			fp := crypto.Fingerprint(host.Pub)
 			row.FP = fp
 			row.Registered = true
-			row.Online = h.peerOnline(host.Pub)
+			row.Online = h.hostConnected(host.Pub)
 			key := hex.EncodeToString(host.Pub)
 			names[key] = host.Name
 			versions[key] = host.Version
@@ -197,7 +201,7 @@ func (h *Hub) adminSnapshot(ctx context.Context) (map[string]any, error) {
 			ID: b.ID, HostName: names[hex.EncodeToString(b.HostPub)],
 			HostVersion: versions[hex.EncodeToString(b.HostPub)],
 			DeviceName:  b.DeviceName, DeviceModel: b.DeviceModel, DeviceVersion: b.DeviceVersion,
-			Online: h.peerOnline(b.DevicePub), Path: h.LinkPath(b.HostPub, b.DevicePub),
+			Online: h.bindingConnected(b.ID), Path: h.LinkPath(b.HostPub, b.DevicePub),
 			Revoked: b.Revoked, CreatedAt: b.Created.UTC().Format(time.RFC3339),
 			SessionID: hex.EncodeToString(b.SessionID),
 		}

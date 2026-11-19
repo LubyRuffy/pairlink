@@ -21,32 +21,16 @@ func NewMemory() *Memory { return &Memory{} }
 func (m *Memory) PutHost(_ context.Context, h Host) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if i := hostIndex(m.hosts, h); i >= 0 {
+	i, err := locateHost(m.hosts, h)
+	if err != nil {
+		return err
+	}
+	if i >= 0 {
 		m.hosts[i] = mergeHost(m.hosts[i], h)
 		return nil
 	}
 	m.hosts = append(m.hosts, h)
 	return nil
-}
-
-// hostIndex prefers the token, then a real 32-byte public key. An empty
-// public key must not match every not-yet-registered host.
-func hostIndex(hosts []Host, h Host) int {
-	if len(h.TokenHash) > 0 {
-		for i, x := range hosts {
-			if bytes.Equal(x.TokenHash, h.TokenHash) {
-				return i
-			}
-		}
-	}
-	if len(h.Pub) == 32 {
-		for i, x := range hosts {
-			if len(x.Pub) == 32 && bytes.Equal(x.Pub, h.Pub) {
-				return i
-			}
-		}
-	}
-	return -1
 }
 
 func (m *Memory) HostByTokenHash(_ context.Context, hash []byte) (Host, error) {
@@ -84,11 +68,48 @@ func (m *Memory) PutPairing(_ context.Context, p Pairing) error {
 	return nil
 }
 
+func (m *Memory) LookupPairing(_ context.Context, codeHash []byte) (Pairing, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return inspectPairing(m.pairings, codeHash, time.Now())
+}
+
 func (m *Memory) ConsumePairing(_ context.Context, codeHash []byte) (Pairing, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now()
-	for i, p := range m.pairings {
+	p, err := inspectPairing(m.pairings, codeHash, now)
+	if err != nil {
+		return Pairing{}, err
+	}
+	for i := range m.pairings {
+		if bytes.Equal(m.pairings[i].CodeHash, codeHash) {
+			m.pairings[i].Consumed = true
+			p.Consumed = true
+			return p, nil
+		}
+	}
+	return Pairing{}, ErrNotFound
+}
+
+func (m *Memory) RestorePairing(_ context.Context, codeHash []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.pairings {
+		if !bytes.Equal(m.pairings[i].CodeHash, codeHash) {
+			continue
+		}
+		if !m.pairings[i].Consumed {
+			return ErrNotFound
+		}
+		m.pairings[i].Consumed = false
+		return nil
+	}
+	return ErrNotFound
+}
+
+func inspectPairing(rows []Pairing, codeHash []byte, now time.Time) (Pairing, error) {
+	for _, p := range rows {
 		if !bytes.Equal(p.CodeHash, codeHash) {
 			continue
 		}
@@ -98,8 +119,6 @@ func (m *Memory) ConsumePairing(_ context.Context, codeHash []byte) (Pairing, er
 		if now.After(p.Expires) {
 			return Pairing{}, ErrExpired
 		}
-		m.pairings[i].Consumed = true
-		p.Consumed = true
 		return p, nil
 	}
 	return Pairing{}, ErrNotFound
@@ -121,12 +140,17 @@ func (m *Memory) PutBinding(_ context.Context, b Binding) error {
 	defer m.mu.Unlock()
 	n := 0
 	for _, x := range m.bindings {
-		if bytes.Equal(x.HostPub, b.HostPub) && !x.Revoked {
+		if bytes.Equal(x.HostPub, b.HostPub) && !x.Revoked && !bytes.Equal(x.DevicePub, b.DevicePub) {
 			n++
 		}
 	}
 	if n >= MaxBindingsPerHost {
 		return ErrLimit
+	}
+	for i := range m.bindings {
+		if bytes.Equal(m.bindings[i].HostPub, b.HostPub) && bytes.Equal(m.bindings[i].DevicePub, b.DevicePub) && !m.bindings[i].Revoked {
+			m.bindings[i].Revoked = true
+		}
 	}
 	m.bindings = append(m.bindings, b)
 	return nil
@@ -149,15 +173,7 @@ func (m *Memory) BindingByTicketHash(_ context.Context, hash []byte) (Binding, e
 func (m *Memory) BindingByPeers(_ context.Context, hostPub, devicePub []byte) (Binding, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, b := range m.bindings {
-		if bytes.Equal(b.HostPub, hostPub) && bytes.Equal(b.DevicePub, devicePub) {
-			if b.Revoked {
-				return Binding{}, ErrRevoked
-			}
-			return b, nil
-		}
-	}
-	return Binding{}, ErrNotFound
+	return selectBinding(m.bindings, hostPub, devicePub)
 }
 
 func (m *Memory) ListBindings(_ context.Context, hostPub []byte) ([]Binding, error) {

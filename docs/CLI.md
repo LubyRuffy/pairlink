@@ -64,3 +64,13 @@ go run ./examples/echo -role device -hub http://127.0.0.1:7780 -offer '<uri>'
 ```
 
 回环上路径会升到 `direct`。UDP 断了会回到 `relay`。
+
+## direct
+
+一个进程里起 hub，再起两个带 UDP 的 Go 端点。打洞成功后管理页「数据面」是「直连」。手机 App 没有 UDP，用这个看标志，不要拿手机行对比。
+
+```bash
+go run ./examples/direct
+```
+
+stdout 打出管理页 URL，以及只显示一次的管理口令。进程停着，宣告才不会过 45 秒过期。`-listen`、`-udp`、`-admin-token` 都是 flag。

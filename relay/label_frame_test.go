@@ -18,6 +18,7 @@ import (
 
 func TestLabelFrameIsStoredNotForwarded(t *testing.T) {
 	h := New(nil)
+	h.EnableSniff()
 	srv := httptest.NewServer(h.Handler())
 	t.Cleanup(srv.Close)
 

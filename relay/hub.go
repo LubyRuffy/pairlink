@@ -2,6 +2,7 @@
 package relay
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -39,6 +40,8 @@ type Hub struct {
 	conns map[string]*peerConn // pubkey hex -> ws
 	paths map[string]pathObs   // bound pair -> latest path announcement
 	sniff [][]byte             // test-only intercepted payloads
+	// sniffOn retains forwarded TypeData copies. Production leaves it off.
+	sniffOn bool
 
 	// Idle is the quiet-WebSocket deadline. Zero means 60s. Tests shorten it.
 	Idle time.Duration
@@ -49,10 +52,12 @@ type Hub struct {
 }
 
 type peerConn struct {
-	pub  []byte
-	ws   *websocket.Conn
-	wmu  sync.Mutex
-	addr string
+	pub       []byte
+	device    bool
+	bindingID string
+	ws        *websocket.Conn
+	wmu       sync.Mutex
+	addr      string
 }
 
 func (h *Hub) SetNow(now func() time.Time) {
@@ -101,6 +106,17 @@ func New(st store.Store) *Hub {
 		now:   time.Now,
 		conns: map[string]*peerConn{},
 	}
+}
+
+// EnableSniff keeps copies of forwarded TypeData payloads for tests.
+// Production hubs leave this off.
+func (h *Hub) EnableSniff() {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.sniffOn = true
+	h.mu.Unlock()
 }
 
 // SniffedPayloads is test-only: copies of forwarded TypeData payloads so a
@@ -210,7 +226,15 @@ func (h *Hub) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if version := protocol.SanitizeLabel(req.Version); version != "" {
 		host.Version = version
 	}
+	if existing, err := h.Store.HostByPub(r.Context(), pub); err == nil && len(existing.TokenHash) > 0 && !bytes.Equal(existing.TokenHash, host.TokenHash) {
+		httpError(w, http.StatusConflict, "public key in use")
+		return
+	}
 	if err := h.Store.PutHost(r.Context(), host); err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			httpError(w, http.StatusConflict, "public key in use")
+			return
+		}
 		httpError(w, http.StatusInternalServerError, "store")
 		return
 	}
@@ -280,31 +304,60 @@ func (h *Hub) handleRedeem(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "bad pub")
 		return
 	}
-	p, err := h.Store.ConsumePairing(r.Context(), store.HashSecret(strings.TrimSpace(req.Code)))
-	if err != nil {
+	codeHash := store.HashSecret(strings.TrimSpace(req.Code))
+	p, err := h.Store.LookupPairing(r.Context(), codeHash)
+	if err != nil || h.clock().After(p.Expires) {
 		httpError(w, http.StatusNotFound, "invalid or expired code")
 		return
 	}
-	if _, ok := h.lookup(p.HostPub); !ok {
+	if bytes.Equal(dev, p.HostPub) {
+		httpError(w, http.StatusConflict, "host key")
+		return
+	}
+	if existing, herr := h.Store.HostByPub(r.Context(), dev); herr == nil && len(existing.Pub) == protocol.KeySize {
+		httpError(w, http.StatusConflict, "host key")
+		return
+	}
+	if !h.hostConnected(p.HostPub) {
 		httpError(w, http.StatusConflict, "host offline")
 		return
 	}
-	n, err := h.Store.CountBindings(r.Context(), p.HostPub)
+	list, err := h.Store.ListBindings(r.Context(), p.HostPub)
 	if err != nil {
 		httpError(w, http.StatusInternalServerError, "store")
 		return
 	}
-	if n >= maxBindings {
-		httpError(w, http.StatusConflict, "binding limit")
+	var retire []string
+	for _, b := range list {
+		if bytes.Equal(b.DevicePub, dev) {
+			retire = append(retire, b.ID)
+		}
+	}
+	if len(retire) == 0 {
+		n, err := h.Store.CountBindings(r.Context(), p.HostPub)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, "store")
+			return
+		}
+		if n >= maxBindings {
+			httpError(w, http.StatusConflict, "binding limit")
+			return
+		}
+	}
+	p, err = h.Store.ConsumePairing(r.Context(), codeHash)
+	if err != nil {
+		httpError(w, http.StatusNotFound, "invalid or expired code")
 		return
 	}
 	ticket, err := randomHex(32)
 	if err != nil {
+		_ = h.Store.RestorePairing(r.Context(), codeHash)
 		httpError(w, http.StatusInternalServerError, "rng")
 		return
 	}
 	bid, err := randomHex(16)
 	if err != nil {
+		_ = h.Store.RestorePairing(r.Context(), codeHash)
 		httpError(w, http.StatusInternalServerError, "rng")
 		return
 	}
@@ -320,8 +373,17 @@ func (h *Hub) handleRedeem(w http.ResponseWriter, r *http.Request) {
 		DeviceVersion: protocol.SanitizeLabel(req.Version),
 	}
 	if err := h.Store.PutBinding(r.Context(), b); err != nil {
+		_ = h.Store.RestorePairing(r.Context(), codeHash)
+		if errors.Is(err, store.ErrLimit) {
+			httpError(w, http.StatusConflict, "binding limit")
+			return
+		}
 		httpError(w, http.StatusInternalServerError, "store")
 		return
+	}
+	for _, id := range retire {
+		_ = h.Store.RevokeBinding(r.Context(), id)
+		h.dropBinding(id)
 	}
 	ref := hex.EncodeToString(p.SessionID)
 	_ = h.Store.AppendTrace(r.Context(), store.TraceEvent{Ref: ref, Kind: "bind", PeerFP: crypto.Fingerprint(dev)})
@@ -367,7 +429,7 @@ func (h *Hub) handleListBindings(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:     b.Created.UTC().Format(time.RFC3339),
 			LastConnected: lastConnectedAt(b.LastConnected),
 			SessionID:     hex.EncodeToString(b.SessionID),
-			Online:        h.peerOnline(b.DevicePub),
+			Online:        h.bindingConnected(b.ID),
 			Path:          h.LinkPath(host.Pub, b.DevicePub),
 		})
 	}
@@ -401,6 +463,7 @@ func (h *Hub) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusInternalServerError, "store")
 		return
 	}
+	h.dropBinding(id)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -412,8 +475,13 @@ func (h *Hub) handleTrace(w http.ResponseWriter, r *http.Request) {
 	}
 	// Trace is metadata-only; still require a host token so random internet
 	// cannot enumerate sessions.
-	if _, err := h.authHost(r); err != nil {
+	host, err := h.authHost(r)
+	if err != nil {
 		httpError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if !h.traceVisible(r.Context(), host, ref) {
+		httpError(w, http.StatusNotFound, "not found")
 		return
 	}
 	ev, err := h.Store.Trace(r.Context(), ref)
@@ -469,7 +537,7 @@ func lastConnectedAt(at time.Time) string {
 }
 
 func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
-	pub, hostPub, device, err := h.identifyWS(r)
+	pub, hostPub, device, bindingID, err := h.identifyWS(r)
 	if err != nil {
 		httpError(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -485,13 +553,16 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 	// A device 101 with no host in this process is a black hole: frames are
 	// dropped and the client keeps its local "online" bit. Close now so it redials.
 	if device {
-		if _, ok := h.lookup(hostPub); !ok {
+		if !h.hostConnected(hostPub) {
 			_ = ws.Close()
 			return
 		}
 	}
-	pc := &peerConn{pub: pub, ws: ws, addr: r.RemoteAddr}
-	key := hex.EncodeToString(pub)
+	pc := &peerConn{pub: append([]byte(nil), pub...), device: device, bindingID: bindingID, ws: ws, addr: r.RemoteAddr}
+	key := hostPresenceKey(pub)
+	if device {
+		key = devicePresenceKey(bindingID)
+	}
 	h.mu.Lock()
 	if old, ok := h.conns[key]; ok {
 		_ = old.ws.Close()
@@ -517,7 +588,8 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 	}()
 	ws.SetReadLimit(80 << 10)
 	ws.SetPingHandler(func(appData string) error {
-		_ = ws.SetReadDeadline(time.Now().Add(h.wsIdle()))
+		// Control pings do not count as data frames. The read deadline stays
+		// on the PLK1 read loop.
 		return ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
 	})
 	for {
@@ -536,7 +608,9 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 		// Path is endpoint metadata. It is not forwarded and not sniffed:
 		// the hub never treats an application payload as a path.
 		if fr.Type == protocol.TypePath {
-			h.observePath(r.Context(), pub, fr.Dst[:], fr.Payload)
+			if h.boundPair(r.Context(), pc, fr.Dst[:]) {
+				h.observePath(r.Context(), pub, fr.Dst[:], fr.Payload)
+			}
 			continue
 		}
 		// Labels are endpoint metadata, same class as a path. The hub stores
@@ -582,45 +656,65 @@ func wsToken(r *http.Request) string {
 	return strings.TrimPrefix(p, ticketProtoPrefix)
 }
 
-func (h *Hub) identifyWS(r *http.Request) (pub, hostPub []byte, device bool, err error) {
+func (h *Hub) identifyWS(r *http.Request) (pub, hostPub []byte, device bool, bindingID string, err error) {
 	tok := wsToken(r)
 	if tok == "" {
-		return nil, nil, false, errors.New("missing token")
+		return nil, nil, false, "", errors.New("missing token")
 	}
-	if host, herr := h.Store.HostByTokenHash(r.Context(), store.HashSecret(tok)); herr == nil && len(host.Pub) > 0 {
-		return host.Pub, nil, false, nil
+	if host, herr := h.Store.HostByTokenHash(r.Context(), store.HashSecret(tok)); herr == nil && len(host.Pub) == protocol.KeySize {
+		return append([]byte(nil), host.Pub...), nil, false, "", nil
 	}
 	b, err := h.Store.BindingByTicketHash(r.Context(), store.HashSecret(tok))
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, false, "", err
 	}
-	return b.DevicePub, append([]byte(nil), b.HostPub...), true, nil
+	if b.ID == "" || len(b.DevicePub) != protocol.KeySize {
+		return nil, nil, false, "", errors.New("bad binding")
+	}
+	return append([]byte(nil), b.DevicePub...), append([]byte(nil), b.HostPub...), true, b.ID, nil
 }
 
-func (h *Hub) lookup(pub []byte) (*peerConn, bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	pc, ok := h.conns[hex.EncodeToString(pub)]
-	return pc, ok
+func (h *Hub) traceVisible(ctx context.Context, host store.Host, ref string) bool {
+	if h == nil || h.Store == nil || ref == "" {
+		return false
+	}
+	if len(host.Pub) == protocol.KeySize && crypto.Fingerprint(host.Pub) == ref {
+		return true
+	}
+	if p, err := h.Store.PairingByID(ctx, ref); err == nil && bytes.Equal(p.HostPub, host.Pub) {
+		return true
+	}
+	all, err := h.Store.ListAllBindings(ctx)
+	if err != nil {
+		return false
+	}
+	for _, b := range all {
+		if !bytes.Equal(b.HostPub, host.Pub) {
+			continue
+		}
+		if b.ID == ref || hex.EncodeToString(b.SessionID) == ref {
+			return true
+		}
+		if len(b.DevicePub) == protocol.KeySize && crypto.Fingerprint(b.DevicePub) == ref {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Hub) forward(ctx context.Context, from *peerConn, fr protocol.Frame, raw []byte) {
-	dst := fr.Dst[:]
-	if _, err := h.Store.BindingByPeers(ctx, from.pub, dst); err != nil {
-		if _, err2 := h.Store.BindingByPeers(ctx, dst, from.pub); err2 != nil {
-			return
-		}
-	}
-	to, ok := h.lookup(dst)
+	to, ok := h.relayTarget(ctx, from, fr.Dst[:])
 	if !ok {
 		return
 	}
 	sid := hex.EncodeToString(fr.SessionID[:])
 	if fr.Type == protocol.TypeData {
 		h.mu.Lock()
-		h.sniff = append(h.sniff, append([]byte(nil), fr.Payload...))
-		if len(h.sniff) > 64 {
-			h.sniff = h.sniff[len(h.sniff)-64:]
+		if h.sniffOn {
+			h.sniff = append(h.sniff, append([]byte(nil), fr.Payload...))
+			if len(h.sniff) > 64 {
+				h.sniff = h.sniff[len(h.sniff)-64:]
+			}
 		}
 		h.mu.Unlock()
 	}

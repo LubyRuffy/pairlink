@@ -39,10 +39,13 @@ database. It does not open a second SQLite file, copy frames, or mount
 - Live path is `Hub.LinkPath`: `relay`, `direct`, or empty. Empty is "no fresh
   announcement" for that phone pair. A UI may label the phone offline. Do not
   store the path.
-- PC presence is `Hub.PeerOnline(hostPub)`, also `hosts[].online` on the admin
-  snapshot. A registered host with a live websocket is online when it has no
-  binding and when every phone is offline. An empty `LinkPath` is not "PC
-  offline". A host socket does not stamp `Binding.LastConnected`.
+- PC presence is `hosts[].online` and `Hub.PeerOnline(hostPub)` while the host
+  socket is up. A device ticket cannot occupy that socket; each binding has
+  its own device socket, and `bindings[].online` follows that socket.
+  `PeerOnline` is also true for a device public key that still has a socket.
+  A registered host with a live websocket is online when it has no binding
+  and when every phone is offline. An empty `LinkPath` is not "PC offline".
+  A host socket does not stamp `Binding.LastConnected`.
 - `Binding.LastConnected` moves forward when that device websocket is accepted
   or dropped. `NoteDeviceSeen` is the store method. A host socket does not
   stamp phone rows. Zero means never observed.

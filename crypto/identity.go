@@ -220,14 +220,15 @@ func (s *Session) Open(msg []byte) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n := binary.BigEndian.Uint64(msg[:8])
+	if n == 0 || n <= s.recvN {
+		return nil, fmt.Errorf("crypto: replayed message")
+	}
 	var nonce [NonceSize]byte
 	binary.BigEndian.PutUint64(nonce[4:], n)
 	plain, err := s.recv.Open(nil, nonce[:], msg[8:], nil)
 	if err != nil {
 		return nil, err
 	}
-	if n > s.recvN {
-		s.recvN = n
-	}
+	s.recvN = n
 	return plain, nil
 }

@@ -144,6 +144,9 @@ func RedeemOfferInfo(ctx context.Context, hc *http.Client, offer protocol.Offer,
 	if err != nil {
 		return "", nil, nil, err
 	}
+	if len(offer.HostPub) == crypto.KeySize && !bytes.Equal(hostPub, offer.HostPub) {
+		return "", nil, nil, fmt.Errorf("client: host key mismatch")
+	}
 	sessionID, err = hex.DecodeString(resp.SessionID)
 	return resp.Ticket, hostPub, sessionID, err
 }

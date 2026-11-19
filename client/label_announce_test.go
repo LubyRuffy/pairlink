@@ -76,6 +76,7 @@ func TestFirstSocketFrameIsLabel(t *testing.T) {
 func TestDialAndSetLabelsReachHubWithoutHandshake(t *testing.T) {
 	st := store.NewMemory()
 	hub := relay.New(st)
+	hub.EnableSniff()
 	srv := httptest.NewServer(hub.Handler())
 	t.Cleanup(srv.Close)
 	ctx := context.Background()

@@ -46,6 +46,7 @@ type Conn struct {
 	ws    *websocket.Conn
 	wsMu  sync.Mutex
 	udp   *net.UDPConn
+	udpMu sync.Mutex
 	stun  string
 	local []string
 
@@ -61,15 +62,19 @@ type Conn struct {
 }
 
 type Link struct {
-	ID       string
-	PeerPub  []byte
-	sessID   [protocol.SessionIDSize]byte
-	crypt    *crypto.Session
-	inbox    chan []byte
-	path     atomic.Value // string
-	peerUDP  atomic.Value // *net.UDPAddr
-	lastPong atomic.Int64
-	conn     *Conn
+	ID        string
+	PeerPub   []byte
+	sessID    [protocol.SessionIDSize]byte
+	crypt     *crypto.Session
+	inbox     chan []byte
+	path      atomic.Value // string
+	peerUDP   atomic.Value // *net.UDPAddr
+	peers     atomic.Value // map[string]struct{}
+	endpoints atomic.Value // []*net.UDPAddr
+	gotDisco  atomic.Bool
+	gotPunch  atomic.Bool
+	lastPong  atomic.Int64
+	conn      *Conn
 }
 
 func (l *Link) Path() string {
@@ -131,16 +136,32 @@ func (c *Conn) Close() error {
 		c.ws = nil
 	}
 	c.wsMu.Unlock()
-	if c.udp != nil {
-		_ = c.udp.Close()
-	}
+	c.KillUDP()
 	return nil
 }
 
+func (c *Conn) currentUDP() *net.UDPConn {
+	if c == nil {
+		return nil
+	}
+	c.udpMu.Lock()
+	defer c.udpMu.Unlock()
+	return c.udp
+}
+
+func (c *Conn) setUDP(pc *net.UDPConn) {
+	c.udpMu.Lock()
+	c.udp = pc
+	c.udpMu.Unlock()
+}
+
 func (c *Conn) KillUDP() {
-	if c.udp != nil {
-		_ = c.udp.Close()
-		c.udp = nil
+	c.udpMu.Lock()
+	pc := c.udp
+	c.udp = nil
+	c.udpMu.Unlock()
+	if pc != nil {
+		_ = pc.Close()
 	}
 	c.mu.Lock()
 	links := make([]*Link, 0, len(c.links))
@@ -196,7 +217,6 @@ func (c *Conn) bindUDP() error {
 	if err != nil {
 		return err
 	}
-	c.udp = pc
 	port := pc.LocalAddr().(*net.UDPAddr).Port
 	c.local = localEndpoints(port)
 	if c.stun != "" {
@@ -204,6 +224,7 @@ func (c *Conn) bindUDP() error {
 			c.local = append(c.local, obs)
 		}
 	}
+	c.setUDP(pc)
 	return nil
 }
 
@@ -226,21 +247,29 @@ func stunOnce(pc *net.UDPConn, stun string, pub []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer func() { _ = pc.SetReadDeadline(time.Time{}) }()
 	msg := append([]byte(protocol.Magic), pub...)
 	if _, err := pc.WriteToUDP(msg, addr); err != nil {
 		return "", err
 	}
 	_ = pc.SetReadDeadline(time.Now().Add(800 * time.Millisecond))
 	buf := make([]byte, 256)
-	n, _, err := pc.ReadFromUDP(buf)
-	_ = pc.SetReadDeadline(time.Time{})
-	if err != nil {
-		return "", err
+	deadline := time.Now().Add(800 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		_ = pc.SetReadDeadline(deadline)
+		n, from, err := pc.ReadFromUDP(buf)
+		if err != nil {
+			return "", err
+		}
+		if from == nil || !udpSame(from, addr) {
+			continue
+		}
+		if n < 4 || string(buf[:4]) != protocol.Magic {
+			return "", fmt.Errorf("bad stun")
+		}
+		return string(buf[4:n]), nil
 	}
-	if n < 4 || string(buf[:4]) != protocol.Magic {
-		return "", fmt.Errorf("bad stun")
-	}
-	return string(buf[4:n]), nil
+	return "", fmt.Errorf("bad stun")
 }
 
 func (c *Conn) newFrame(typ byte, dst []byte, payload []byte) protocol.Frame {
@@ -260,10 +289,11 @@ func (c *Conn) newFrame(typ byte, dst []byte, payload []byte) protocol.Frame {
 func (c *Conn) readUDP() {
 	buf := make([]byte, 70<<10)
 	for {
-		if c.udp == nil {
+		pc := c.currentUDP()
+		if pc == nil {
 			return
 		}
-		n, addr, err := c.udp.ReadFromUDP(buf)
+		n, addr, err := pc.ReadFromUDP(buf)
 		if err != nil {
 			return
 		}
@@ -278,6 +308,9 @@ func (c *Conn) readUDP() {
 func (c *Conn) handleFrame(fr protocol.Frame, via string, from *net.UDPAddr) {
 	switch fr.Type {
 	case protocol.TypeObserved:
+		if via != protocol.PathRelay || !srcZero(fr.Src) {
+			return
+		}
 		obs, err := protocol.UnmarshalObserved(fr.Payload)
 		if err != nil {
 			return
@@ -288,7 +321,7 @@ func (c *Conn) handleFrame(fr protocol.Frame, via string, from *net.UDPAddr) {
 			c.mu.Unlock()
 		}
 	case protocol.TypeHandshake:
-		c.onHandshake(fr)
+		c.onHandshake(fr, via)
 	case protocol.TypeData:
 		c.onData(fr)
 	case protocol.TypeDisco:
@@ -303,11 +336,15 @@ func (c *Conn) handleFrame(fr protocol.Frame, via string, from *net.UDPAddr) {
 	_ = via
 }
 
-func (c *Conn) onHandshake(fr protocol.Frame) {
+func (c *Conn) onHandshake(fr protocol.Frame, via string) {
+	if via != protocol.PathRelay {
+		return
+	}
 	peer := append([]byte(nil), fr.Src[:]...)
 	key := hex.EncodeToString(peer)
 	c.mu.Lock()
 	hs, waiting := c.pending[key]
+	_, linked := c.links[key]
 	c.mu.Unlock()
 	if waiting {
 		sess, err := hs.Finish(fr.Payload)
@@ -315,6 +352,9 @@ func (c *Conn) onHandshake(fr protocol.Frame) {
 			return
 		}
 		c.install(peer, fr.SessionID, sess)
+		return
+	}
+	if linked {
 		return
 	}
 	sess, reply, err := crypto.Respond(c.cfg.Identity, peer, fr.Payload)
@@ -380,9 +420,10 @@ func (c *Conn) onDisco(fr protocol.Frame) {
 	if err != nil {
 		return
 	}
-	if c.udp == nil {
+	if c.currentUDP() == nil {
 		return
 	}
+	rememberEndpoints(l, d.Endpoints)
 	for _, ep := range d.Endpoints {
 		addr, err := net.ResolveUDPAddr("udp", ep)
 		if err != nil {
@@ -394,27 +435,28 @@ func (c *Conn) onDisco(fr protocol.Frame) {
 
 func (c *Conn) replyPong(fr protocol.Frame, from *net.UDPAddr) {
 	l := c.linkByPeer(fr.Src[:])
-	if l == nil {
+	if l == nil || !allowPeer(l, from) {
 		return
 	}
+	l.gotPunch.Store(true)
 	l.peerUDP.Store(from)
 	c.sendPunch(l, from, protocol.TypePunchPong)
 }
 
 func (c *Conn) onPong(fr protocol.Frame, from *net.UDPAddr) {
 	l := c.linkByPeer(fr.Src[:])
-	if l == nil {
+	if l == nil || !allowPeer(l, from) {
 		return
 	}
-	if from != nil {
-		l.peerUDP.Store(from)
-	}
+	l.gotPunch.Store(true)
+	l.peerUDP.Store(from)
 	l.lastPong.Store(time.Now().UnixNano())
 	c.notePath(l, protocol.PathDirect)
 }
 
 func (c *Conn) sendPunch(l *Link, addr *net.UDPAddr, typ byte) {
-	if c.udp == nil || addr == nil {
+	pc := c.currentUDP()
+	if pc == nil || addr == nil {
 		return
 	}
 	fr := c.newFrame(typ, l.PeerPub, nil)
@@ -423,7 +465,7 @@ func (c *Conn) sendPunch(l *Link, addr *net.UDPAddr, typ byte) {
 	if err != nil {
 		return
 	}
-	_, _ = c.udp.WriteToUDP(raw, addr)
+	_, _ = pc.WriteToUDP(raw, addr)
 }
 
 func (c *Conn) punchLoop() {
@@ -442,8 +484,21 @@ func (c *Conn) punchLoop() {
 			c.mu.Unlock()
 			now := time.Now()
 			for _, l := range links {
+				// Keep advertising until the peer has punched back. One side can
+				// install the link after the other's first disco was dropped.
+				if !l.gotPunch.Load() {
+					_ = c.sendDisco(l)
+				}
 				if addr, _ := l.peerUDP.Load().(*net.UDPAddr); addr != nil {
 					c.sendPunch(l, addr, protocol.TypePunchPing)
+				} else if l.gotDisco.Load() {
+					// The first punch can arrive before the peer has installed
+					// the sealed disco set. Keep trying those endpoints until
+					// one answer is accepted.
+					eps, _ := l.endpoints.Load().([]*net.UDPAddr)
+					for _, addr := range eps {
+						c.sendPunch(l, addr, protocol.TypePunchPing)
+					}
 				}
 				last := time.Unix(0, l.lastPong.Load())
 				if l.Path() == protocol.PathDirect && (last.IsZero() || now.Sub(last) > 2*time.Second) {
@@ -487,14 +542,16 @@ func (l *Link) Send(plain []byte) error {
 	}
 	fr := l.conn.newFrame(protocol.TypeData, l.PeerPub, sealed)
 	fr.SessionID = l.sessID
-	if l.Path() == protocol.PathDirect && l.conn.udp != nil {
-		if addr, _ := l.peerUDP.Load().(*net.UDPAddr); addr != nil {
-			raw, err := fr.Marshal()
-			if err != nil {
+	if l.Path() == protocol.PathDirect {
+		if pc := l.conn.currentUDP(); pc != nil {
+			if addr, _ := l.peerUDP.Load().(*net.UDPAddr); addr != nil {
+				raw, err := fr.Marshal()
+				if err != nil {
+					return err
+				}
+				_, err = pc.WriteToUDP(raw, addr)
 				return err
 			}
-			_, err = l.conn.udp.WriteToUDP(raw, addr)
-			return err
 		}
 	}
 	return l.conn.writeWS(fr)
@@ -584,6 +641,9 @@ func (c *Conn) Redeem(ctx context.Context, offer protocol.Offer) (hostPub []byte
 	hostPub, err = crypto.ParsePublic(resp.HostPub)
 	if err != nil {
 		return nil, nil, "", err
+	}
+	if len(offer.HostPub) == crypto.KeySize && !bytes.Equal(hostPub, offer.HostPub) {
+		return nil, nil, "", fmt.Errorf("client: host key mismatch")
 	}
 	sessionID, err = hex.DecodeString(resp.SessionID)
 	return hostPub, sessionID, resp.Ticket, err
