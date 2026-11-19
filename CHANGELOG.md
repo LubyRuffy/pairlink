@@ -13,8 +13,9 @@
 - `GET /trace/{id}` with a host token only returns that host's own records.
   Admin trace stays unscoped. WebSocket control pings do not extend the idle
   deadline. Forwarded TypeData is not retained unless a test calls `EnableSniff`.
-- The client accepts a handshake only on the relay, and ignores a repeat once
-  the link exists. A punch packet switches to direct only when its UDP source
+- The client accepts a handshake only on the relay, so a UDP handshake cannot
+  replace a live session. A new relay handshake can replace it, which is how a
+  phone reconnects. A punch packet switches to direct only when its UDP source
   is in the sealed disco set. `TypeObserved` is accepted only from the hub on
   the relay. Session nonces start at 1 and reject replay or an older nonce.
   Redeem compares the response host key with the offer. The phone page pins

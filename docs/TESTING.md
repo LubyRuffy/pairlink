@@ -22,7 +22,7 @@ Required cases:
 - Another host token cannot register a taken public key, and cannot read that
   host's trace. WebSocket pings do not hold the idle deadline.
 - A sealed session rejects a replayed or older nonce. A forged punch from
-  outside the sealed disco set does not move the data path. A second handshake
+  outside the sealed disco set does not move the data path. A UDP handshake
   does not replace a live link.
 - Device ticket as WebSocket subprotocol opens the relay (browser clients).
 - Capacitor WebView OPTIONS preflight on redeem returns 204 with CORS.

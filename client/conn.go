@@ -344,7 +344,6 @@ func (c *Conn) onHandshake(fr protocol.Frame, via string) {
 	key := hex.EncodeToString(peer)
 	c.mu.Lock()
 	hs, waiting := c.pending[key]
-	_, linked := c.links[key]
 	c.mu.Unlock()
 	if waiting {
 		sess, err := hs.Finish(fr.Payload)
@@ -354,9 +353,8 @@ func (c *Conn) onHandshake(fr protocol.Frame, via string) {
 		c.install(peer, fr.SessionID, sess)
 		return
 	}
-	if linked {
-		return
-	}
+	// A relay handshake replaces the session. That is how a phone reconnects
+	// with the same key. UDP handshakes never reach this point.
 	sess, reply, err := crypto.Respond(c.cfg.Identity, peer, fr.Payload)
 	if err != nil {
 		return

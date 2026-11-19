@@ -17,7 +17,7 @@ import (
 	"github.com/LubyRuffy/pairlink/protocol"
 )
 
-func TestRepeatHandshakeDoesNotReplaceLink(t *testing.T) {
+func TestUDPHandshakeDoesNotReplaceLink(t *testing.T) {
 	hub, url, cancel := startHub(t)
 	defer cancel()
 	hostC, _, hostL, devL := pairWith(t, hub, url, true)
@@ -27,7 +27,6 @@ func TestRepeatHandshakeDoesNotReplaceLink(t *testing.T) {
 	copy(fr.Dst[:], hostC.cfg.Identity.Public())
 	fr.Payload = bytes.Repeat([]byte{9}, 32)
 	hostC.handleFrame(fr, protocol.PathDirect, nil)
-	hostC.handleFrame(fr, protocol.PathRelay, nil)
 	if err := hostL.Send([]byte("kept")); err != nil {
 		t.Fatal(err)
 	}

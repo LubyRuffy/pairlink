@@ -168,7 +168,7 @@ Token 在 body 里，不在 URL 里。成功后这把公钥和这个 token 绑�
 1. 两端先在 hub 的 WebSocket 上完成握手。握手字节对 hub 不透明。
 2. 应用数据先从中转走。
 3. 端点把本机和 STUN 观察到的 UDP 地址封进 `TypeDisco`。hub 另外用 `TypeObserved` 告诉端点「我在传输层看见你从哪来」。hub 不能伪造封好的 disco。
-4. 两端互发 `PunchPing` / `PunchPong`。客户端只接受来源地址属于对端已密封 disco 端点的 UDP 打洞包，通了才把应用数据改走 UDP，并宣告 `TypePath = direct`。WebSocket 上的打洞包不切换路径。握手只在中转路径上接受；这条会话已经建立时，多余的握手帧不会换掉它。`TypeObserved` 只接受中转路径上、源公钥全零的帧。密封序号从 1 开始，重放或更旧的序号会被拒绝。
+4. 两端互发 `PunchPing` / `PunchPong`。客户端只接受来源地址属于对端已密封 disco 端点的 UDP 打洞包，通了才把应用数据改走 UDP，并宣告 `TypePath = direct`。WebSocket 上的打洞包不切换路径。握手只在中转路径上接受，所以 UDP 上的握手帧不能换掉已经建立的会话；中转上的新握手可以换会话，手机用同一把钥匙重连靠的就是这个。`TypeObserved` 只接受中转路径上、源公钥全零的帧。密封序号从 1 开始，重放或更旧的序号会被拒绝。
 5. UDP 断了，立刻改回 WebSocket，并宣告 `TypePath = relay`。
 6. 路径变化时立刻宣告。没变化也要在保活时再宣告一次。hub 只保留 45 秒。过期后 `LinkPath` 是空串，调用方应显示离线或「无宣告」，不要猜成直连。
 
